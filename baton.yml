@@ -1,0 +1,34 @@
+project:
+  team: infra
+  metadata:
+    name: kube-ci
+    version: "1.0"
+    staging:
+      project: aws
+      cluster: aws-eu-stg
+      min_instances: '2'
+      max_instances: '2'
+      externalAccess: public
+
+kubernetes:
+- id: kube-ci
+  cpus: 0.5
+  mem: 128
+  autoscale:
+    min: '{{ min_instances }}'
+    max: '{{ max_instances }}'
+    cpuPercent: 70
+    memPercent: 70
+  ports:
+    - name: http
+      containerPort: 8080
+  livenessProbe:
+    httpGet:
+      path: /status
+      port: http
+    timeoutSeconds: 2
+    initialDelaySeconds: 10
+    periodSeconds: 1
+  labels:
+    dnsName: 'kube-ci-staging.qutics.com' 
+    externalAccess: '{{ externalAccess }}'
