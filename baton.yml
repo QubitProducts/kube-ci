@@ -12,13 +12,14 @@ project:
 
 kubernetes:
 - id: kube-ci
-  cpus: 0.5
-  mem: 128
-  autoscale:
-    min: '{{ min_instances }}'
-    max: '{{ max_instances }}'
-    cpuPercent: 70
-    memPercent: 70
+  cpus: 0.01
+  mem: 64
+  instances: 1
+  args:
+  - "-github.appid=23811"
+  - "-keysfile=/config/keys.yaml"
+  - "-secretfile=/config/webhook-secret"
+  - "-argo.ui.base=https://argo-ui-staging.qutics.com"
   ports:
     - name: http
       containerPort: 8080
