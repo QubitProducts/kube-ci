@@ -20,6 +20,7 @@ kube-ci:
 - Reports parsing errors of the user supplied workflow back the Github UI.
 - Feeds back the status of Workflow pods to the Github UI
 - Links to the argo-ui for the created workflow
+- Populates `file:N:M: message` from logs as Annotations in GitHub check runs.
 
 ## TODO
 - allow configuration of workflow creation options, e.g. namespace, TTL etc.
