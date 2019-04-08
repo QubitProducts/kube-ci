@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"sort"
 	"strconv"
 	"syscall"
@@ -42,7 +43,7 @@ import (
 	"github.com/google/go-github/v22/github"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -92,12 +93,13 @@ func (f httpErrorFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *github.CheckRun) *workflow.Workflow {
 	newWf := wf.DeepCopy()
 
+	sanitize := regexp.MustCompile(`[^-A-Za-z0-9]`)
 	newWf.GenerateName = ""
 	newWf.Namespace = "argo"
 	newWf.Name = fmt.Sprintf("%s.%s.%s.%d",
-		*event.Repo.Owner.Login,
-		*event.Repo.Name,
-		*event.CheckSuite.HeadBranch,
+		sanitize.ReplaceAllString(*event.Repo.Owner.Login, "-"),
+		sanitize.ReplaceAllString(*event.Repo.Name, "-"),
+		sanitize.ReplaceAllString(*event.CheckSuite.HeadBranch, "-"),
 		time.Now().Unix(),
 	)
 
