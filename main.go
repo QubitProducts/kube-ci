@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -29,6 +30,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -37,7 +39,6 @@ import (
 	argoScheme "github.com/argoproj/argo/pkg/client/clientset/versioned/scheme"
 	informers "github.com/argoproj/argo/pkg/client/informers/externalversions"
 	listers "github.com/argoproj/argo/pkg/client/listers/workflow/v1alpha1"
-	yaml "gopkg.in/yaml.v2"
 
 	"github.com/bradleyfalzon/ghinstallation"
 	"github.com/google/go-github/v22/github"
@@ -176,17 +177,24 @@ func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *gi
 type githubKeyStore struct {
 	baseTransport http.RoundTripper
 	appID         int
-
-	keys map[int][]byte
+	ids           []int
+	key           []byte
 }
 
 func (ks *githubKeyStore) getClient(installID int) (*github.Client, error) {
-	key, ok := ks.keys[installID]
-	if !ok {
+	validID := false
+	for _, id := range ks.ids {
+		if installID == id {
+			validID = true
+			break
+		}
+	}
+
+	if len(ks.ids) > 0 && !validID {
 		return nil, fmt.Errorf("unknown installation %d", installID)
 	}
 
-	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, installID, key)
+	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, installID, ks.key)
 	if err != nil {
 		return nil, err
 	}
@@ -770,7 +778,8 @@ func main() {
 	masterURL := flag.String("master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	shutdownGrace := flag.Duration("grace.shutdown", 2*time.Second, "delay before server shuts down")
 	requestGrace := flag.Duration("grace.requests", 1*time.Second, "delay before server starts shut down")
-	keysfile := flag.String("keysfile", "keys.yaml", "file of github installation keys")
+	keyfile := flag.String("keyfile", "github-key", "github application key")
+	idsfile := flag.String("idsfiles", "", "newline delimited list of install-ids,if not provided, or empty, all intall-ids are accepted")
 	secretfile := flag.String("secretfile", "webhook-secret", "file containing your webhook secret")
 	appID := flag.Int("github.appid", 0, "github application ID")
 	argoUIBaseURL := flag.String("argo.ui.base", "http://argo", "file containing your webhook secret")
@@ -808,33 +817,36 @@ func main() {
 		},
 	)
 
-	keysbs, err := ioutil.ReadFile(*keysfile)
+	keybs, err := ioutil.ReadFile(*keyfile)
 	if err != nil {
 		log.Fatalf("failed to read keys files, %v", err)
 	}
 
-	var keyList []struct {
-		ID  int    `json:"id" yaml:"id"`
-		Key string `json:"key" yaml:"key"`
-	}
-
-	err = yaml.Unmarshal(keysbs, &keyList)
-	if err != nil {
-		log.Fatalf("failed to parse keys file, %v", err)
-	}
-
-	keys := map[int][]byte{}
-	for _, k := range keyList {
-		if _, ok := keys[k.ID]; ok {
-			log.Fatalf("duplicate key id %v", k.ID)
+	var ids []int
+	if len(*idsfile) > 0 {
+		file, err := os.Open(*idsfile)
+		if err != nil {
+			log.Fatalf("failed to open ids files, %v", err)
 		}
-		keys[k.ID] = []byte(k.Key)
+		lr := bufio.NewReader(file)
+		for {
+			line, _, err := lr.ReadLine()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Fatalf("failed to read id file, %v", err)
+			}
+			id, err := strconv.Atoi(strings.TrimSpace(string(line)))
+			ids = append(ids, id)
+		}
 	}
 
 	ghSrc := &githubKeyStore{
 		baseTransport: http.DefaultTransport,
 		appID:         *appID,
-		keys:          keys,
+		key:           bytes.TrimSpace(keybs),
+		ids:           ids,
 	}
 
 	secret, err := ioutil.ReadFile(*secretfile)

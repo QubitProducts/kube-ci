@@ -17,7 +17,7 @@ kubernetes:
   instances: 1
   args:
   - "-github.appid=23811"
-  - "-keysfile=/config/keys.yaml"
+  - "-keyfile=/config/keyfile"
   - "-secretfile=/config/webhook-secret"
   - "-argo.ui.base=https://argo-ui-staging.qutics.com"
   ports:
