@@ -90,25 +90,30 @@ func (f httpErrorFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, status, code)
 }
 
-// updateWorkflow, lots of these settings shoud come in from some config.
-func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *github.CheckRun) *workflow.Workflow {
-	newWf := wf.DeepCopy()
+var sanitize = regexp.MustCompile(`[^-A-Za-z0-9]`)
 
-	sanitize := regexp.MustCompile(`[^-A-Za-z0-9]`)
-	newWf.GenerateName = ""
-	newWf.Namespace = "argo"
-	newWf.Name = fmt.Sprintf("%s.%s.%s.%d",
-		sanitize.ReplaceAllString(*event.Repo.Owner.Login, "-"),
-		sanitize.ReplaceAllString(*event.Repo.Name, "-"),
-		sanitize.ReplaceAllString(*event.CheckSuite.HeadBranch, "-"),
+func wfName(prefix, owner, repo, sha string) string {
+	return fmt.Sprintf("%s.%s.%s.%s.%d",
+		prefix,
+		sanitize.ReplaceAllString(owner, "-"),
+		sanitize.ReplaceAllString(repo, "-"),
+		sanitize.ReplaceAllString(sha, "-"),
 		time.Now().Unix(),
 	)
+}
+
+// updateWorkflow, lots of these settings shoud come in from some config.
+func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *github.CheckRun) {
+	wfType := "ci"
+	wf.GenerateName = ""
+	wf.Namespace = "argo"
+	wf.Name = wfName(wfType, *event.Repo.Owner.Login, *event.Repo.Name, *event.CheckSuite.HeadBranch)
 
 	ttl := int32((3 * 24 * time.Hour) / time.Second)
-	newWf.Spec.TTLSecondsAfterFinished = &ttl
+	wf.Spec.TTLSecondsAfterFinished = &ttl
 
-	newWf.Spec.Tolerations = append(
-		newWf.Spec.Tolerations,
+	wf.Spec.Tolerations = append(
+		wf.Spec.Tolerations,
 		v1.Toleration{
 			Effect: "NoSchedule",
 			Key:    "dedicated",
@@ -116,7 +121,7 @@ func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *gi
 		},
 	)
 
-	newWf.Spec.NodeSelector = map[string]string{
+	wf.Spec.NodeSelector = map[string]string{
 		"jenkins": "true",
 	}
 
@@ -151,27 +156,27 @@ func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *gi
 		},
 	}...)
 
-	newWf.Spec.Arguments.Parameters = parms
+	wf.Spec.Arguments.Parameters = parms
 
-	if newWf.Labels == nil {
-		newWf.Labels = make(map[string]string)
+	if wf.Labels == nil {
+		wf.Labels = make(map[string]string)
 	}
-	newWf.Labels["managedBy"] = "kube-ci"
+	wf.Labels["managedBy"] = "kube-ci"
+	wf.Labels["wfType"] = wfType
 
-	if newWf.Annotations == nil {
-		newWf.Annotations = make(map[string]string)
+	if wf.Annotations == nil {
+		wf.Annotations = make(map[string]string)
 	}
 
-	newWf.Annotations["kube-ci.qutics.com/sha"] = *event.CheckSuite.HeadSHA
-	newWf.Annotations["kube-ci.qutics.com/branch"] = *event.CheckSuite.HeadBranch
-	newWf.Annotations["kube-ci.qutics.com/repo"] = *event.Repo.Name
-	newWf.Annotations["kube-ci.qutics.com/org"] = *event.Repo.Owner.Login
+	wf.Annotations["kube-ci.qutics.com/sha"] = *event.CheckSuite.HeadSHA
+	wf.Annotations["kube-ci.qutics.com/branch"] = *event.CheckSuite.HeadBranch
+	wf.Annotations["kube-ci.qutics.com/repo"] = *event.Repo.Name
+	wf.Annotations["kube-ci.qutics.com/org"] = *event.Repo.Owner.Login
 
-	newWf.Annotations["kube-ci.qutics.com/check-run-name"] = *cr.Name
-	newWf.Annotations["kube-ci.qutics.com/check-run-id"] = strconv.Itoa(int(*cr.ID))
-	newWf.Annotations["kube-ci.qutics.com/github-install-id"] = strconv.Itoa(int(*event.Installation.ID))
+	wf.Annotations["kube-ci.qutics.com/github-install-id"] = strconv.Itoa(int(*event.Installation.ID))
 
-	return newWf
+	wf.Annotations["kube-ci.qutics.com/check-run-name"] = *cr.Name
+	wf.Annotations["kube-ci.qutics.com/check-run-id"] = strconv.Itoa(int(*cr.ID))
 }
 
 type githubKeyStore struct {
@@ -478,13 +483,6 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 				Summary: &summary,
 				Text:    &text,
 			},
-			//Actions: []*github.CheckRunAction{
-			//	{
-			//		Label:       "Click Me",
-			//		Description: "This brings joy",
-			//		Identifier:  "joyBringer",
-			//	},
-			//},
 		},
 	)
 
@@ -530,6 +528,30 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 		return
 	}
 
+	var actions []*github.CheckRunAction
+	if wf.Status.Phase == workflow.NodeSucceeded {
+		actions = []*github.CheckRunAction{
+			{
+				Label:       "Deploy Me",
+				Description: "Do the thing ",
+				Identifier:  "deploy",
+			},
+		}
+	}
+
+	_, _, err = ghClient.Checks.UpdateCheckRun(
+		context.Background(),
+		cri.orgName,
+		cri.repoName,
+		cri.checkRunID,
+		github.UpdateCheckRunOptions{
+			Name:       cri.checkRunName,
+			HeadBranch: &cri.headBranch,
+			HeadSHA:    &cri.headSHA,
+			Actions:    actions,
+		},
+	)
+
 	batchSize := 50 // github API allows 50 at a time
 	for i := 0; i < len(allAnns); i += batchSize {
 		start := i
@@ -554,6 +576,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 					Text:        text,
 					Annotations: anns,
 				},
+				Actions: actions,
 			},
 		)
 		if err != nil {
@@ -602,6 +625,59 @@ func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {
 	return nil
 }
 
+func (ws *workflowSyncer) getWorkflow(
+	ctx context.Context,
+	ghClient *github.Client,
+	owner string,
+	name string,
+	sha string,
+	filename string) (*workflow.Workflow, error) {
+
+	file, err := ghClient.Repositories.DownloadContents(
+		ctx,
+		owner,
+		name,
+		filename,
+		&github.RepositoryContentGetOptions{
+			Ref: sha,
+		})
+	if err != nil {
+		if ghErr, ok := err.(*github.ErrorResponse); ok {
+			if ghErr.Response.StatusCode == http.StatusNotFound {
+				log.Printf("no .kube-ci/ci.yaml in %s/%s (%s)",
+					owner,
+					name,
+					sha,
+				)
+				return nil, os.ErrNotExist
+			}
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	bs := &bytes.Buffer{}
+
+	_, err = io.Copy(bs, file)
+	if err != nil {
+		return nil, err
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(bs.Bytes(), nil, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s, %v", filename, err)
+	}
+
+	wf, ok := obj.(*workflow.Workflow)
+	if !ok {
+		return nil, fmt.Errorf("could not use %T as workflow", wf)
+	}
+
+	return wf, nil
+}
+
 func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
 	payload, err := github.ValidatePayload(r, ws.ghSecret)
 	if err != nil {
@@ -613,64 +689,62 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		return http.StatusBadRequest, "could not parse request"
 	}
 
+	ctx := r.Context()
+
 	switch event := rawEvent.(type) {
 	case *github.CheckSuiteEvent:
-		if *event.Action != "requested" && *event.Action != "rerequested" {
-			return http.StatusOK, ""
+		switch *event.Action {
+		case "requested", "rerequested":
+			return ws.webhookCheckSuite(ctx, event)
+		default:
+			return http.StatusOK, "unknown action ignore"
 		}
+	case *github.CheckRunEvent:
+		switch *event.Action {
+		case "requested_action":
+			return ws.webhookCheckRunRequestAction(ctx, event)
+		default:
+			return http.StatusOK, "unknown action ignore"
+		}
+	case *github.DeploymentEvent:
+		return ws.webhookDeployment(ctx, event)
+	case *github.DeploymentStatusEvent:
+		return ws.webhookDeploymentStatus(ctx, event)
 	default:
-		return http.StatusOK, ""
+		return http.StatusOK, fmt.Sprintf("unknown event type %T", event)
 	}
+}
 
-	event := rawEvent.(*github.CheckSuiteEvent)
-
+func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
 	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
 
-	ctx := r.Context()
-
 	// All is good (return an error to fail)
-	file, err := ghClient.Repositories.DownloadContents(
+	ciFile := ".kube-ci/ci.yaml"
+
+	wf, err := ws.getWorkflow(
 		ctx,
+		ghClient,
 		*event.Org.Login,
 		*event.Repo.Name,
-		".kube-ci/ci.yaml",
-		&github.RepositoryContentGetOptions{
-			Ref: *event.CheckSuite.HeadSHA,
-		})
-	if err != nil {
-		if ghErr, ok := err.(*github.ErrorResponse); ok {
-			if ghErr.Response.StatusCode == http.StatusNotFound {
-				log.Printf("no .kube-ci/ci.yaml in %s/%s (%s)",
-					*event.Org.Login,
-					*event.Repo.Name,
-					*event.CheckSuite.HeadSHA,
-				)
-				return http.StatusOK, ""
-			}
-		}
-		log.Printf("github call failed, %v", err)
-		return http.StatusInternalServerError, ""
-	}
-	defer file.Close()
+		*event.CheckSuite.HeadSHA,
+		ciFile,
+	)
 
-	bs := &bytes.Buffer{}
-
-	_, err = io.Copy(bs, file)
-	if err != nil {
-		log.Printf("copy failed, %v", err)
-		return http.StatusInternalServerError, ""
+	if os.IsNotExist(err) {
+		log.Printf("no %s in %s/%s (%s)",
+			ciFile,
+			*event.Org.Login,
+			*event.Repo.Name,
+			*event.CheckSuite.HeadSHA,
+		)
+		return http.StatusOK, ""
 	}
 
-	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(bs.Bytes(), nil, nil)
-
 	if err != nil {
-		log.Printf("Unable to decode content, %v", err)
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
-		log.Print(msg)
 		status := "completed"
 		conclusion := "failure"
 		title := "Workflow Setup"
@@ -698,34 +772,6 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		return http.StatusBadRequest, msg
 	}
 
-	wf, ok := obj.(*workflow.Workflow)
-	if !ok {
-		msg := fmt.Sprintf("could not use %T as workflow", wf)
-		log.Print(msg)
-		status := "completed"
-		conclusion := "failure"
-		title := "Workflow Setup"
-		ghClient.Checks.CreateCheckRun(ctx,
-			*event.Org.Login,
-			*event.Repo.Name,
-			github.CreateCheckRunOptions{
-				Name:       "Argo Workflow",
-				HeadBranch: *event.CheckSuite.HeadBranch,
-				HeadSHA:    *event.CheckSuite.HeadSHA,
-				Status:     &status,
-				Conclusion: &conclusion,
-				CompletedAt: &github.Timestamp{
-					Time: time.Now(),
-				},
-				Output: &github.CheckRunOutput{
-					Title:   &title,
-					Summary: &msg,
-				},
-			},
-		)
-		return http.StatusBadRequest, "unable convert to workflow"
-	}
-
 	cr, _, err := ghClient.Checks.CreateCheckRun(ctx,
 		*event.Org.Login,
 		*event.Repo.Name,
@@ -740,7 +786,9 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		return http.StatusInternalServerError, ""
 	}
 
-	_, err = ws.client.Argoproj().Workflows("argo").Create(updateWorkflow(wf, event, cr))
+	wf = wf.DeepCopy()
+	updateWorkflow(wf, event, cr)
+	_, err = ws.client.Argoproj().Workflows("argo").Create(wf)
 	if err != nil {
 		msg := fmt.Sprintf("argo workflow creation failed, %v", err)
 		log.Print(msg)
@@ -768,6 +816,114 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		return http.StatusInternalServerError, ""
 	}
 
+	return http.StatusOK, ""
+}
+
+func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
+	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+
+	/*
+			// All is good (return an error to fail)
+			ciFile := ".kube-ci/deploy.yaml"
+
+			wf, err := ws.getWorkflow(
+				ctx,
+				ghClient,
+				*event.Org.Login,
+				*event.Repo.Name,
+				*event.CheckRun.HeadSHA,
+				ciFile,
+			)
+
+		if os.IsNotExist(err) {
+			log.Printf("no %s in %s/%s (%s)",
+				ciFile,
+				*event.Org.Login,
+				*event.Repo.Name,
+				*event.CheckRun.HeadSHA,
+			)
+			return http.StatusOK, ""
+		}
+	*/
+
+	env := "staging"
+	msg := fmt.Sprintf("deploying the thing to %v", env)
+	dep, _, err := ghClient.Repositories.CreateDeployment(
+		ctx,
+		*event.Org.Login,
+		*event.Repo.Name,
+		&github.DeploymentRequest{
+			Ref:         event.CheckRun.HeadSHA,
+			Description: &msg,
+			Environment: &env,
+		},
+	)
+
+	if err != nil {
+		log.Printf("create deployment ailed, %v", err)
+		return http.StatusInternalServerError, ""
+	}
+
+	log.Printf("Deployment created, %v", *dep.ID)
+
+	return http.StatusOK, "blah"
+}
+
+func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
+	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+
+	logURL := fmt.Sprintf(
+		"%s/workflows/%s/%s",
+		ws.argoUIBase,
+		"blah",
+		"blah")
+	pending := "pending"
+	_, _, err = ghClient.Repositories.CreateDeploymentStatus(
+		ctx,
+		*event.Repo.Owner.Login,
+		*event.Repo.Name,
+		*event.Deployment.ID,
+		&github.DeploymentStatusRequest{
+			State:  &pending,
+			LogURL: &logURL,
+		},
+	)
+
+	if err != nil {
+		log.Printf("create deployment state failed, %v", err)
+		return http.StatusInternalServerError, ""
+	}
+
+	go func() {
+		time.Sleep(10 * time.Second)
+		success := "success"
+		_, _, err := ghClient.Repositories.CreateDeploymentStatus(
+			context.Background(),
+			*event.Repo.Owner.Login,
+			*event.Repo.Name,
+			*event.Deployment.ID,
+			&github.DeploymentStatusRequest{
+				State:  &success,
+				LogURL: &logURL,
+			},
+		)
+
+		if err != nil {
+			log.Printf("create deployment state failed, %v", err)
+		}
+	}()
+
+	return http.StatusOK, ""
+}
+
+func (ws *workflowSyncer) webhookDeploymentStatus(ctx context.Context, event *github.DeploymentStatusEvent) (int, string) {
+	log.Printf("status: %v is %v", *event.DeploymentStatus.ID, *event.DeploymentStatus.State)
 	return http.StatusOK, ""
 }
 
