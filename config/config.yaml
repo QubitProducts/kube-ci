@@ -1,0 +1,7 @@
+toleration:
+- effect:  "NoSchedule"
+  key:     "dedicated"
+  value:   "ci"
+
+nodeSelector:
+  jenkins: "true"

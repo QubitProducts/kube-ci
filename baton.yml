@@ -16,6 +16,7 @@ kubernetes:
   mem: 64
   instances: 1
   args:
+  - "-config=/config/config.yaml"
   - "-github.appid=23811"
   - "-keyfile=/config/keyfile"
   - "-secretfile=/config/webhook-secret"

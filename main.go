@@ -39,6 +39,7 @@ import (
 	argoScheme "github.com/argoproj/argo/pkg/client/clientset/versioned/scheme"
 	informers "github.com/argoproj/argo/pkg/client/informers/externalversions"
 	listers "github.com/argoproj/argo/pkg/client/listers/workflow/v1alpha1"
+	"gopkg.in/yaml.v2"
 
 	"github.com/bradleyfalzon/ghinstallation"
 	"github.com/google/go-github/v22/github"
@@ -90,6 +91,62 @@ func (f httpErrorFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, status, code)
 }
 
+type githubKeyStore struct {
+	baseTransport http.RoundTripper
+	appID         int
+	ids           []int
+	key           []byte
+}
+
+func (ks *githubKeyStore) getClient(installID int) (*github.Client, error) {
+	validID := false
+	for _, id := range ks.ids {
+		if installID == id {
+			validID = true
+			break
+		}
+	}
+
+	if len(ks.ids) > 0 && !validID {
+		return nil, fmt.Errorf("unknown installation %d", installID)
+	}
+
+	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, installID, ks.key)
+	if err != nil {
+		return nil, err
+	}
+
+	return github.NewClient(&http.Client{Transport: itr}), nil
+}
+
+type githubClientSource interface {
+	getClient(installID int) (*github.Client, error)
+}
+
+// Config defines our configuration file format
+type Config struct {
+	CIFilePath   string            `yaml:"ciFilePath"`
+	Namespace    string            `yaml:"namespace"`
+	Tolerations  []v1.Toleration   `yaml:"tolerations"`
+	NodeSelector map[string]string `yaml:"nodeSelector"`
+}
+
+type workflowSyncer struct {
+	ghSecret []byte
+
+	ghClientSrc githubClientSource
+
+	config     Config
+	kubeclient kubernetes.Interface
+	client     clientset.Interface
+	lister     listers.WorkflowLister
+	synced     cache.InformerSynced
+	workqueue  workqueue.RateLimitingInterface
+	recorder   record.EventRecorder
+
+	argoUIBase string
+}
+
 var sanitize = regexp.MustCompile(`[^-A-Za-z0-9]`)
 
 func wfName(prefix, owner, repo, sha string) string {
@@ -103,26 +160,28 @@ func wfName(prefix, owner, repo, sha string) string {
 }
 
 // updateWorkflow, lots of these settings shoud come in from some config.
-func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *github.CheckRun) {
+func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *github.CheckRun) {
 	wfType := "ci"
 	wf.GenerateName = ""
-	wf.Namespace = "argo"
 	wf.Name = wfName(wfType, *event.Repo.Owner.Login, *event.Repo.Name, *event.CheckSuite.HeadBranch)
+
+	if ws.config.Namespace != "" {
+		wf.Namespace = ws.config.Namespace
+	}
 
 	ttl := int32((3 * 24 * time.Hour) / time.Second)
 	wf.Spec.TTLSecondsAfterFinished = &ttl
 
 	wf.Spec.Tolerations = append(
 		wf.Spec.Tolerations,
-		v1.Toleration{
-			Effect: "NoSchedule",
-			Key:    "dedicated",
-			Value:  "ci",
-		},
+		ws.config.Tolerations...,
 	)
 
-	wf.Spec.NodeSelector = map[string]string{
-		"jenkins": "true",
+	if wf.Spec.NodeSelector == nil {
+		wf.Spec.NodeSelector = map[string]string{}
+	}
+	for k, v := range ws.config.NodeSelector {
+		wf.Spec.NodeSelector[k] = v
 	}
 
 	var parms []workflow.Parameter
@@ -179,53 +238,6 @@ func updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *gi
 	wf.Annotations["kube-ci.qutics.com/check-run-id"] = strconv.Itoa(int(*cr.ID))
 }
 
-type githubKeyStore struct {
-	baseTransport http.RoundTripper
-	appID         int
-	ids           []int
-	key           []byte
-}
-
-func (ks *githubKeyStore) getClient(installID int) (*github.Client, error) {
-	validID := false
-	for _, id := range ks.ids {
-		if installID == id {
-			validID = true
-			break
-		}
-	}
-
-	if len(ks.ids) > 0 && !validID {
-		return nil, fmt.Errorf("unknown installation %d", installID)
-	}
-
-	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, installID, ks.key)
-	if err != nil {
-		return nil, err
-	}
-
-	return github.NewClient(&http.Client{Transport: itr}), nil
-}
-
-type githubClientSource interface {
-	getClient(installID int) (*github.Client, error)
-}
-
-type workflowSyncer struct {
-	ghSecret []byte
-
-	ghClientSrc githubClientSource
-
-	kubeclient kubernetes.Interface
-	client     clientset.Interface
-	lister     listers.WorkflowLister
-	synced     cache.InformerSynced
-	workqueue  workqueue.RateLimitingInterface
-	recorder   record.EventRecorder
-
-	argoUIBase string
-}
-
 func (ws *workflowSyncer) enqueue(obj interface{}) {
 	var key string
 	var err error
@@ -243,6 +255,7 @@ func newWorkflowSyncer(
 	ghClientSrc githubClientSource,
 	ghSecret []byte,
 	baseURL string,
+	config Config,
 ) *workflowSyncer {
 
 	informer := sinf.Argoproj().V1alpha1().Workflows()
@@ -257,6 +270,7 @@ func newWorkflowSyncer(
 		synced:     informer.Informer().HasSynced,
 		workqueue:  workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "workflows"),
 		argoUIBase: baseURL,
+		config:     config,
 	}
 
 	log.Print("Setting up event handlers")
@@ -644,7 +658,8 @@ func (ws *workflowSyncer) getWorkflow(
 	if err != nil {
 		if ghErr, ok := err.(*github.ErrorResponse); ok {
 			if ghErr.Response.StatusCode == http.StatusNotFound {
-				log.Printf("no .kube-ci/ci.yaml in %s/%s (%s)",
+				log.Printf("no %s in %s/%s (%s)",
+					filename,
 					owner,
 					name,
 					sha,
@@ -721,21 +736,18 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		return http.StatusBadRequest, err.Error()
 	}
 
-	// All is good (return an error to fail)
-	ciFile := ".kube-ci/ci.yaml"
-
 	wf, err := ws.getWorkflow(
 		ctx,
 		ghClient,
 		*event.Org.Login,
 		*event.Repo.Name,
 		*event.CheckSuite.HeadSHA,
-		ciFile,
+		ws.config.CIFilePath,
 	)
 
 	if os.IsNotExist(err) {
 		log.Printf("no %s in %s/%s (%s)",
-			ciFile,
+			ws.config.CIFilePath,
 			*event.Org.Login,
 			*event.Repo.Name,
 			*event.CheckSuite.HeadSHA,
@@ -787,7 +799,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 	}
 
 	wf = wf.DeepCopy()
-	updateWorkflow(wf, event, cr)
+	ws.updateWorkflow(wf, event, cr)
 	_, err = ws.client.Argoproj().Workflows("argo").Create(wf)
 	if err != nil {
 		msg := fmt.Sprintf("argo workflow creation failed, %v", err)
@@ -934,6 +946,7 @@ func main() {
 	masterURL := flag.String("master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	shutdownGrace := flag.Duration("grace.shutdown", 2*time.Second, "delay before server shuts down")
 	requestGrace := flag.Duration("grace.requests", 1*time.Second, "delay before server starts shut down")
+	configfile := flag.String("config", "", "configuration options")
 	keyfile := flag.String("keyfile", "github-key", "github application key")
 	idsfile := flag.String("idsfiles", "", "newline delimited list of install-ids,if not provided, or empty, all intall-ids are accepted")
 	secretfile := flag.String("secretfile", "webhook-secret", "file containing your webhook secret")
@@ -1010,6 +1023,21 @@ func main() {
 		log.Fatalf("failed to read secrets file, %v", err)
 	}
 
+	wfconfig := Config{
+		CIFilePath: ".kube-ci/ci.yaml",
+	}
+
+	if *configfile != "" {
+		bs, err := ioutil.ReadFile(*configfile)
+		if err != nil {
+			log.Fatalf("failed to read config file, %v", err)
+		}
+		err = yaml.Unmarshal(bs, &wfconfig)
+		if err != nil {
+			log.Fatalf("failed to parse config file, %v", err)
+		}
+	}
+
 	wfSyncer := newWorkflowSyncer(
 		kubeClient,
 		wfClient,
@@ -1017,6 +1045,7 @@ func main() {
 		ghSrc,
 		secret,
 		*argoUIBaseURL,
+		wfconfig,
 	)
 
 	shutdownInt := int32(200)
