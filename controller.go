@@ -25,12 +25,14 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
 	clientset "github.com/argoproj/argo/pkg/client/clientset/versioned"
 	informers "github.com/argoproj/argo/pkg/client/informers/externalversions"
 	listers "github.com/argoproj/argo/pkg/client/listers/workflow/v1alpha1"
+	"github.com/pkg/errors"
 
 	"github.com/bradleyfalzon/ghinstallation"
 	"github.com/google/go-github/v22/github"
@@ -43,6 +45,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+
+	"github.com/mattn/go-shellwords"
 )
 
 var ()
@@ -681,6 +685,8 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		return ws.webhookDeployment(ctx, event)
 	case *github.DeploymentStatusEvent:
 		return ws.webhookDeploymentStatus(ctx, event)
+	case *github.IssueCommentEvent:
+		return ws.webhookIssueComment(ctx, event)
 	default:
 		return http.StatusOK, fmt.Sprintf("unknown event type %T", event)
 	}
@@ -894,4 +900,129 @@ func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.D
 func (ws *workflowSyncer) webhookDeploymentStatus(ctx context.Context, event *github.DeploymentStatusEvent) (int, string) {
 	log.Printf("status: %v is %v", *event.DeploymentStatus.ID, *event.DeploymentStatus.State)
 	return http.StatusOK, ""
+}
+
+func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github.IssueCommentEvent) (int, string) {
+	if *event.Action != "created" {
+		return http.StatusOK, ""
+	}
+
+	cmdparts := strings.SplitN(strings.TrimSpace(*event.Comment.Body), " ", 3)
+
+	rootCmd := "/kube-ci"
+	if len(cmdparts) < 1 || cmdparts[0] != rootCmd {
+		return http.StatusOK, ""
+	}
+
+	if len(cmdparts) == 1 {
+		ws.slashUnknown(ctx, event)
+		return http.StatusOK, ""
+	}
+
+	cmd := cmdparts[1]
+
+	var err error
+	var args []string
+	if len(cmdparts) > 2 {
+		args, err = shellwords.Parse(cmdparts[2])
+		if err != nil {
+			return http.StatusOK, ""
+		}
+	}
+
+	type slashCommand func(ctx context.Context, event *github.IssueCommentEvent, args ...string) error
+	handlers := map[string]slashCommand{
+		"deploy": ws.slashDeploy,
+		"setup":  ws.slashSetup,
+	}
+
+	f, ok := handlers[cmd]
+
+	if !ok {
+		ws.slashUnknown(ctx, event, cmd)
+		return http.StatusOK, ""
+	}
+
+	err = f(ctx, event, args...)
+	if err != nil {
+		log.Printf("slash command failed, %v", err)
+		return http.StatusBadRequest, err.Error()
+	}
+
+	return http.StatusOK, ""
+}
+
+func (ws *workflowSyncer) slashUnknown(ctx context.Context, event *github.IssueCommentEvent, args ...string) error {
+	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	if err != nil {
+		return errors.Wrap(err, "failed to create github client")
+	}
+
+	body := strings.TrimSpace(`
+Please issue a know command:
+- deploy [environment]
+- setup [template-name]
+`)
+
+	_, _, err = ghClient.Issues.CreateComment(
+		ctx,
+		*event.Repo.Owner.Login,
+		*event.Repo.Name,
+		int(*event.Issue.Number),
+		&github.IssueComment{
+			Body: &body,
+		},
+	)
+
+	if err != nil {
+		return errors.Wrap(err, "failed to create issue")
+	}
+
+	return nil
+}
+
+func (ws *workflowSyncer) slashDeploy(ctx context.Context, event *github.IssueCommentEvent, args ...string) error {
+	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	if err != nil {
+		return errors.Wrap(err, "failed to create github client")
+	}
+
+	body := strings.TrimSpace(`steady on old chap!`)
+
+	ghClient.Issues.CreateComment(
+		ctx,
+		*event.Repo.Owner.Login,
+		*event.Repo.Name,
+		int(*event.Issue.Number),
+		&github.IssueComment{
+			Body: &body,
+		},
+	)
+
+	if err != nil {
+		return errors.Wrap(err, "failed to create issue")
+	}
+
+	return nil
+}
+
+func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCommentEvent, args ...string) error {
+	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	if err != nil {
+		return errors.Wrap(err, "failed to create github client")
+	}
+
+	body := strings.TrimSpace(`no, you set it up!!`)
+
+	ghClient.Issues.CreateComment(
+		ctx,
+		*event.Repo.Owner.Login,
+		*event.Repo.Name,
+		int(*event.Issue.Number),
+		&github.IssueComment{
+			Body: &body,
+		},
+	)
+
+	return nil
 }
