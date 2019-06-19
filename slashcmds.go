@@ -15,15 +15,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/go-github/v22/github"
 	"github.com/mattn/go-shellwords"
@@ -106,8 +105,8 @@ func (ws *workflowSyncer) slashComment(ctx context.Context, event *github.IssueC
 func (ws *workflowSyncer) slashUnknown(ctx context.Context, event *github.IssueCommentEvent, args ...string) error {
 	body := strings.TrimSpace(`
 Please issue a know command:
-- deploy [environment]
-- setup [template-name]
+- deploy [environment (default: "staging")]
+- setup TEMPLATENAME
 `)
 
 	return ws.slashComment(ctx, event, body)
@@ -165,9 +164,9 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCom
 		return nil
 	}
 
-	if len(args) != 1 {
-		// should check the template requested exists
-		ws.slashComment(ctx, event, "blah")
+	tmpl, ok := ws.config.TemplateSet[args[0]]
+	if !ok {
+		ws.slashComment(ctx, event, "unknown template "+args[0])
 		return nil
 	}
 
@@ -177,7 +176,7 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCom
 		return errors.Wrap(err, "cannot setup ci for repository")
 	}
 
-	fileName := ".kube-ci/myfile"
+	fileName := ws.config.CIFilePath
 
 	path := filepath.Dir(fileName)
 	_, files, _, err := ghClient.Repositories.GetContents(
@@ -212,12 +211,17 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCom
 		}
 	}
 
-	body := strings.TrimSpace(`no, you set it up!!`)
-	content := bytes.TrimSpace([]byte(fmt.Sprintf(`some junk %s`, time.Now())))
+	bs, err := ioutil.ReadFile(tmpl.CI)
+	if err != nil {
+		ws.slashComment(ctx, event, fmt.Sprintf("couldn't read template file %s, ci server config is broken!", fileName))
+		return nil
+	}
+
+	body := fmt.Sprintf(`kube-ci configured by %s via %s`, *event.Comment.User.Login, *event.Comment.HTMLURL)
 
 	opts := &github.RepositoryContentFileOptions{
 		Message: &body,
-		Content: content,
+		Content: bs,
 		Branch:  &branch,
 		SHA:     existingSHA,
 	}

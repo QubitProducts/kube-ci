@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+spec:
+  entrypoint: build
+  volumes:
+  - name: ci-secrets
+    secret:
+      secretName: ci-secrets
+  templates:
+  - name: build
+    steps:
+    - - name: build
+        template: build-node
+  - name: build-node
+    inputs:
+      artifacts:
+      - name: code
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+          sshPrivateKeySecret:
+            name:  ci-secrets
+            key: ssh-private-key
+    container:
+      image: "gcr.io/qubit-registry/tools/kube-ci-build:staging"
+      args: 
+      - sh
+      - -c
+      - "baton -e staging -t gcr.io/qubit-registry/builds/{{workflow.parameters.orgName}}/{{workflow.parameters.repoName}}:{{workflow.parameters.revision}}"
+      workingDir: /src
+      env:
+      - name: DOCKER_HOST 
+        value: 127.0.0.1
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: "/.ci-secrets/gcloud-keyfile.json"
+      volumeMounts:
+      - name: ci-secrets
+        mountPath: /.ci-secrets
+    sidecars:
+    - name: dind
+      image: docker:17.10-dind
+      securityContext:
+        privileged: true
+      mirrorVolumeMounts: true
