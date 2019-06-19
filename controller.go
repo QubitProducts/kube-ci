@@ -599,6 +599,39 @@ func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {
 	return nil
 }
 
+func (ws *workflowSyncer) getFile(
+	ctx context.Context,
+	ghClient *github.Client,
+	owner string,
+	name string,
+	sha string,
+	filename string) (io.ReadCloser, error) {
+
+	file, err := ghClient.Repositories.DownloadContents(
+		ctx,
+		owner,
+		name,
+		filename,
+		&github.RepositoryContentGetOptions{
+			Ref: sha,
+		})
+	if err != nil {
+		if ghErr, ok := err.(*github.ErrorResponse); ok {
+			if ghErr.Response.StatusCode == http.StatusNotFound {
+				log.Printf("no %s in %s/%s (%s)",
+					filename,
+					owner,
+					name,
+					sha,
+				)
+				return nil, os.ErrNotExist
+			}
+		}
+		return nil, err
+	}
+	return file, nil
+}
+
 func (ws *workflowSyncer) getWorkflow(
 	ctx context.Context,
 	ghClient *github.Client,
@@ -987,21 +1020,37 @@ func (ws *workflowSyncer) slashDeploy(ctx context.Context, event *github.IssueCo
 		return errors.Wrap(err, "failed to create github client")
 	}
 
-	body := strings.TrimSpace(`steady on old chap!`)
+	if len(args) > 1 {
+		return errors.Wrap(err, "please specify one environment")
+	}
 
-	ghClient.Issues.CreateComment(
+	env := "staging"
+	if len(args) == 1 {
+		env = args[0]
+	}
+
+	_, sha, err := ws.issueHead(ctx, event)
+	if err != nil {
+		return errors.Wrap(err, "cannot setup ci for repository")
+	}
+
+	msg := fmt.Sprintf("deploying the thing to %v", env)
+	dep, _, err := ghClient.Repositories.CreateDeployment(
 		ctx,
 		*event.Repo.Owner.Login,
 		*event.Repo.Name,
-		int(*event.Issue.Number),
-		&github.IssueComment{
-			Body: &body,
+		&github.DeploymentRequest{
+			Ref:         &sha,
+			Description: &msg,
+			Environment: &env,
 		},
 	)
 
 	if err != nil {
-		return errors.Wrap(err, "failed to create issue")
+		return errors.Wrap(err, "failed to create deploy")
 	}
+
+	log.Printf("Deployment created, %v", *dep.ID)
 
 	return nil
 }
@@ -1012,17 +1061,110 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCom
 		return errors.Wrap(err, "failed to create github client")
 	}
 
-	body := strings.TrimSpace(`no, you set it up!!`)
+	branch, sha, err := ws.issueHead(ctx, event)
+	if err != nil {
+		return errors.Wrap(err, "cannot setup ci for repository")
+	}
 
-	ghClient.Issues.CreateComment(
+	log.Printf("branch: %v, sha: %v", branch, sha)
+
+	path := ".kube-ci"
+	_, files, _, err := ghClient.Repositories.GetContents(
 		ctx,
 		*event.Repo.Owner.Login,
 		*event.Repo.Name,
-		int(*event.Issue.Number),
-		&github.IssueComment{
-			Body: &body,
+		path,
+		&github.RepositoryContentGetOptions{
+			Ref: branch,
 		},
 	)
 
+	if err != nil {
+		if ghErr, ok := err.(*github.ErrorResponse); ok {
+			if ghErr.Response.StatusCode != http.StatusNotFound {
+				return errors.Wrap(ghErr, "couldn't get directory listing")
+			}
+			log.Printf("couldn't get %s for %s", path, sha)
+		} else {
+			return errors.Wrap(err, "couldn't get directory listing")
+		}
+	}
+
+	fileName := ".kube-ci/myfile"
+
+	var existingSHA *string
+	for _, f := range files {
+		log.Printf("checking %s %s", *f.Path, *f.SHA)
+
+		if *f.Path == fileName {
+			existingSHA = f.SHA
+			log.Printf("found existing %v (%v)", *f.Path, *existingSHA)
+			break
+		}
+	}
+
+	body := strings.TrimSpace(`no, you set it up!!`)
+	content := bytes.TrimSpace([]byte(fmt.Sprintf(`some junk %s`, time.Now())))
+
+	opts := &github.RepositoryContentFileOptions{
+		Message: &body,
+		Content: content,
+		Branch:  &branch,
+		SHA:     existingSHA,
+	}
+	_, _, err = ghClient.Repositories.CreateFile(
+		ctx,
+		*event.Repo.Owner.Login,
+		*event.Repo.Name,
+		fileName,
+		opts)
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (ws *workflowSyncer) issueHead(ctx context.Context, event *github.IssueCommentEvent) (string, string, error) {
+	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	if err != nil {
+		return "", "", errors.Wrap(err, "failed to create github client")
+	}
+
+	if event.Issue.PullRequestLinks == nil {
+		branch, _, err := ghClient.Repositories.GetBranch(
+			ctx,
+			*event.Repo.Owner.Login,
+			*event.Repo.Name,
+			*event.Repo.DefaultBranch,
+		)
+		if err != nil {
+			return "", "", err
+		}
+		return *event.Repo.DefaultBranch, *branch.Commit.SHA, nil
+	}
+
+	link := event.Issue.PullRequestLinks.URL
+	parts := strings.Split(*link, "/")
+	prid, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return "", "", errors.Wrapf(err, "couldn't parse pull-request ID from %s", *link)
+	}
+
+	pr, _, err := ghClient.PullRequests.Get(
+		ctx,
+		*event.Repo.Owner.Login,
+		*event.Repo.Name,
+		prid,
+	)
+	if err != nil {
+		return "", "", errors.Wrap(err, "couldn't get PR")
+	}
+
+	if *pr.Head.Repo.URL != *pr.Base.Repo.URL ||
+		*pr.Head.Repo.URL != *event.Repo.URL {
+		return "", "", fmt.Errorf("refusing to update cross-repo PR")
+	}
+
+	return *pr.Head.Ref, *pr.Head.SHA, nil
 }
