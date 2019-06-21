@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v22/github"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
@@ -91,6 +92,22 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 	if err != nil {
 		log.Printf("Unable to create check run, %v", err)
 		return http.StatusInternalServerError, ""
+	}
+
+	// We'll cancel all in-progress checks for this
+	// repo/branch
+	wfs, err := ws.lister.Workflows("argo").List(labels.Set(
+		map[string]string{
+			"org":    *event.Repo.Owner.Login,
+			"repo":   *event.Repo.Name,
+			"branch": *event.CheckSuite.HeadBranch,
+		}).AsSelector())
+
+	for _, wf := range wfs {
+		wf = wf.DeepCopy()
+		ads := int64(0)
+		wf.Spec.ActiveDeadlineSeconds = &ads
+		ws.client.Argoproj().Workflows(wf.Namespace).Update(wf)
 	}
 
 	wf = wf.DeepCopy()

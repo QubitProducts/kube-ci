@@ -157,8 +157,8 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	for _, p := range wf.Spec.Arguments.Parameters {
 		if p.Name == "repo" ||
 			p.Name == "revision" ||
-			p.Name == "orgName" ||
-			p.Name == "repoName" {
+			p.Name == "orgname" ||
+			p.Name == "reponame" {
 			continue
 		}
 		parms = append(parms, p)
@@ -191,6 +191,9 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	}
 	wf.Labels["managedBy"] = "kube-ci"
 	wf.Labels["wfType"] = wfType
+	wf.Labels["org"] = *event.Repo.Owner.Login
+	wf.Labels["repo"] = *event.Repo.Name
+	wf.Labels["branch"] = *event.CheckSuite.HeadBranch
 
 	if wf.Annotations == nil {
 		wf.Annotations = make(map[string]string)
