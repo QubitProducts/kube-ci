@@ -79,12 +79,15 @@ type githubClientSource interface {
 	getClient(installID int) (*github.Client, error)
 }
 
+// TemplateSpec gives the description, and location, of a set
+// of config files for use by the setup slash command
 type TemplateSpec struct {
 	Description string `yaml:"description"`
 	CI          string `yaml:"ci"`
 	Deploy      string `yaml:"deploy"`
 }
 
+// TemplateSet describes a set of templates
 type TemplateSet map[string]TemplateSpec
 
 // Config defines our configuration file format
@@ -105,6 +108,7 @@ type workflowSyncer struct {
 	kubeclient kubernetes.Interface
 	client     clientset.Interface
 	lister     listers.WorkflowLister
+	informer   cache.SharedIndexInformer
 	synced     cache.InformerSynced
 	workqueue  workqueue.RateLimitingInterface
 	recorder   record.EventRecorder
@@ -213,6 +217,46 @@ func (ws *workflowSyncer) enqueue(obj interface{}) {
 	ws.workqueue.AddRateLimited(key)
 }
 
+func (ws *workflowSyncer) doDelete(obj interface{}) {
+	// we want to update the check run status for any
+	// workflows that are deleted while still
+	wf, ok := obj.(*workflow.Workflow)
+	if !ok {
+		return
+	}
+
+	cri, err := crInfoFromWorkflow(wf)
+	if err != nil {
+		return
+	}
+
+	if !wf.Status.FinishedAt.IsZero() {
+		return
+	}
+
+	ghClient, err := ws.ghClientSrc.getClient(int(cri.instID))
+	if err != nil {
+		return
+	}
+
+	status := "completed"
+	conclusion := "cancelled"
+	ghClient.Checks.UpdateCheckRun(
+		context.Background(),
+		cri.orgName,
+		cri.repoName,
+		cri.checkRunID,
+		github.UpdateCheckRunOptions{
+			Name:        cri.checkRunName,
+			HeadBranch:  &cri.headBranch,
+			HeadSHA:     &cri.headSHA,
+			Status:      &status,
+			Conclusion:  &conclusion,
+			CompletedAt: &github.Timestamp{Time: time.Now()},
+		},
+	)
+}
+
 func newWorkflowSyncer(
 	kubeclient kubernetes.Interface,
 	clientset clientset.Interface,
@@ -244,6 +288,7 @@ func newWorkflowSyncer(
 		UpdateFunc: func(old, new interface{}) {
 			syncer.enqueue(new)
 		},
+		DeleteFunc: syncer.doDelete,
 	})
 
 	return syncer
