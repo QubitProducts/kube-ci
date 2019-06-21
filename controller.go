@@ -429,6 +429,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	failure := "failure"
 	success := "success"
 	neutral := "neutral"
+	cancelled := "cancelled"
 	var conclusion *string
 
 	var completedAt *github.Timestamp
@@ -444,6 +445,9 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	case workflow.NodeFailed:
 		status = "completed"
 		conclusion = &failure
+		if wf.Spec.ActiveDeadlineSeconds != nil && *wf.Spec.ActiveDeadlineSeconds == 0 {
+			conclusion = &cancelled
+		}
 		completedAt = now
 	case workflow.NodeError:
 		status = "completed"
