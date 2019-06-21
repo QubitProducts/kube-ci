@@ -165,6 +165,7 @@ func main() {
 
 	wfconfig := Config{
 		CIFilePath: ".kube-ci/ci.yaml",
+		Namespace:  namespace,
 	}
 
 	if *configfile != "" {

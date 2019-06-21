@@ -96,7 +96,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 
 	// We'll cancel all in-progress checks for this
 	// repo/branch
-	wfs, err := ws.lister.Workflows("argo").List(labels.Set(
+	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
 		map[string]string{
 			"org":    *event.Repo.Owner.Login,
 			"repo":   *event.Repo.Name,
@@ -112,7 +112,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 
 	wf = wf.DeepCopy()
 	ws.updateWorkflow(wf, event, cr)
-	_, err = ws.client.Argoproj().Workflows("argo").Create(wf)
+	_, err = ws.client.Argoproj().Workflows(ws.config.Namespace).Create(wf)
 	if err != nil {
 		msg := fmt.Sprintf("argo workflow creation failed, %v", err)
 		log.Print(msg)
