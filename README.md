@@ -1,16 +1,11 @@
 # Github CI with K8S and Argo.
 
-This is a reimplementation of argo-ci written in Go,
-and focused purely on GitHub integration.
-
-# Why?
-argo-ci doesn't work well with private github repositories at this time. The
-underlying functionality is fairly simple. The assumption here is that we can
-implement a minimal equivalent with full github app support, and ssh key
-management, in a relatively few lines of code.
+kube-ci builds on argo, and the github API, to provide CI/CD workflows. The
+design goal is to provide as much feedback and support directly via the github
+API, rather than through other interfaces.
 
 # What's here
-The existing code is function, though quality needs improving. The existing
+The existing code is functional, though quality needs improving. The existing
 application:
 
 If a given commit has a workflow file, location in ```.kube-ci/ci.yaml```,
@@ -21,17 +16,24 @@ kube-ci:
 - Feeds back the status of Workflow pods to the Github UI
 - Links to the argo-ui for the created workflow
 - Populates `file:N:M: message` from logs as Annotations in GitHub check runs.
+- You can include configurations which can be imported by comments on github
+  PRs/issues
+- Optionally create a PVC, either per-repo or per-repo-branch, that can be used
+  for cacheing between runs. (clean up of these is yet to be implemented)
 
 ## TODO
 - allow configuration of workflow creation options, e.g. namespace, TTL etc.
 - allow filtering by branch
-- allow different workflows for different branches.
 - better metrics
 - example deployment assets
 
 ## Maybe
 - Help with createing per repo/branch temporary storage for cacheing.
-- updates to slack
+- provide default 
+- Allow CEL (or maybe prolog), configuration of workflows based on 
+  repository content.
+- Create an initial issue on newly created projects to give instructions
+  on how to import a workflow.
 
 # Deploying
 

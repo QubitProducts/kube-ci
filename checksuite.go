@@ -51,11 +51,11 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		return http.StatusOK, ""
 	}
 
+	title := "Workflow Setup"
 	if err != nil {
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
 		status := "completed"
 		conclusion := "failure"
-		title := "Workflow Setup"
 		_, _, err := ghClient.Checks.CreateCheckRun(ctx,
 			*event.Org.Login,
 			*event.Repo.Name,
@@ -112,35 +112,79 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 
 	wf = wf.DeepCopy()
 	ws.updateWorkflow(wf, event, cr)
-	_, err = ws.client.Argoproj().Workflows(ws.config.Namespace).Create(wf)
+
+	err = ws.ensurePVC(
+		wf,
+		*event.Org.Login,
+		*event.Repo.Name,
+		*event.CheckSuite.HeadBranch,
+		ws.config.CacheDefaults,
+	)
 	if err != nil {
-		msg := fmt.Sprintf("argo workflow creation failed, %v", err)
-		log.Print(msg)
-		status := "completed"
-		conclusion := "failure"
-		_, _, err = ghClient.Checks.UpdateCheckRun(
+		ghUpdateCheckRun(
 			ctx,
+			ghClient,
 			*event.Org.Login,
 			*event.Repo.Name,
 			*cr.ID,
-			github.UpdateCheckRunOptions{
-				Status:     &status,
-				Conclusion: &conclusion,
-				Output: &github.CheckRunOutput{
-					Summary: &msg,
-				},
-				CompletedAt: &github.Timestamp{
-					Time: time.Now(),
-				},
-			})
-		if err != nil {
-			log.Printf("Update of aborted check run failed, %v", err)
-		}
+			title,
+			fmt.Sprintf("creation of cache volume failed, %v", err),
+			"completed",
+			"failure",
+		)
+	}
+
+	_, err = ws.client.Argoproj().Workflows(ws.config.Namespace).Create(wf)
+	if err != nil {
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			*event.Org.Login,
+			*event.Repo.Name,
+			*cr.ID,
+			title,
+			fmt.Sprintf("argo workflow creation failed, %v", err),
+			"completed",
+			"failure",
+		)
 
 		return http.StatusInternalServerError, ""
 	}
 
 	return http.StatusOK, ""
+}
+
+func ghUpdateCheckRun(
+	ctx context.Context,
+	ghClient *github.Client,
+	org string,
+	repo string,
+	crID int64,
+	title string,
+	msg string,
+	status string,
+	conclusion string,
+) {
+	log.Print(msg)
+	_, _, err := ghClient.Checks.UpdateCheckRun(
+		ctx,
+		org,
+		repo,
+		crID,
+		github.UpdateCheckRunOptions{
+			Status:     &status,
+			Conclusion: &conclusion,
+			Output: &github.CheckRunOutput{
+				Title:   &title,
+				Summary: &msg,
+			},
+			CompletedAt: &github.Timestamp{
+				Time: time.Now(),
+			},
+		})
+	if err != nil {
+		log.Printf("Update of aborted check run failed, %v", err)
+	}
 }
 
 func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {

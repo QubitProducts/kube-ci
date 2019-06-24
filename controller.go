@@ -79,6 +79,14 @@ type githubClientSource interface {
 	getClient(installID int) (*github.Client, error)
 }
 
+// CacheSpec lets you choose the default settings for a
+// per-job cache volume.
+type CacheSpec struct {
+	Scope            string `yaml:"scope"`
+	Size             string `yaml:"size"`
+	StorageClassName string `yaml:"storageClassName"`
+}
+
 // TemplateSpec gives the description, and location, of a set
 // of config files for use by the setup slash command
 type TemplateSpec struct {
@@ -92,11 +100,12 @@ type TemplateSet map[string]TemplateSpec
 
 // Config defines our configuration file format
 type Config struct {
-	CIFilePath   string            `yaml:"ciFilePath"`
-	Namespace    string            `yaml:"namespace"`
-	Tolerations  []v1.Toleration   `yaml:"tolerations"`
-	NodeSelector map[string]string `yaml:"nodeSelector"`
-	TemplateSet  TemplateSet       `yaml:"templates"`
+	CIFilePath    string            `yaml:"ciFilePath"`
+	Namespace     string            `yaml:"namespace"`
+	Tolerations   []v1.Toleration   `yaml:"tolerations"`
+	NodeSelector  map[string]string `yaml:"nodeSelector"`
+	TemplateSet   TemplateSet       `yaml:"templates"`
+	CacheDefaults CacheSpec         `yaml:"cacheDefaults"`
 }
 
 type workflowSyncer struct {

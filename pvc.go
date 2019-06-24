@@ -13,26 +13,54 @@ import (
 )
 
 var (
-	annCacheVolumeScope            = ""
-	annCacheVolumeStorageSize      = ""
-	annCacheVolumeStorageClassName = ""
+	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
+	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
+	annCacheVolumeStorageSize      = "kube-ci.qutics.com/cacheSize"
+	annCacheVolumeStorageClassName = "kube-ci.qutics.com/cacheStorageClassName"
 )
 
-func (ws *workflowSyncer) ensurePVC(wf *workflow.Workflow) error {
-	scope := "none"
-	org := "blah"
-	repo := "blah"
-	branch := "blah"
-	class := "blah"
-	resStr := ""
-
-	if scope != "branch" || scope != "project" {
-		return errors.New("scope should be either branch or project")
+func (ws *workflowSyncer) ensurePVC(
+	wf *workflow.Workflow,
+	org string,
+	repo string,
+	branch string,
+	defaults CacheSpec) error {
+	scope := defaults.Scope
+	if wfScope, ok := wf.Annotations[annCacheVolumeScope]; ok {
+		scope = wfScope
+	}
+	if scope == "none" || scope == "" {
+		return nil
+	}
+	if scope != "branch" && scope != "project" {
+		return errors.New("scope should be either none, branch or project")
 	}
 
-	name := fmt.Sprintf("ci.%s.%s", org, repo)
+	class := defaults.StorageClassName
+	if wfClass, ok := wf.Annotations[annCacheVolumeStorageClassName]; ok {
+		class = wfClass
+	}
+
+	resStr := defaults.Size
+	if wfRes, ok := wf.Annotations[annCacheVolumeStorageSize]; ok {
+		resStr = wfRes
+	}
+
+	if resStr == "" {
+		return fmt.Errorf("cannot determine cache size, set a default or specify a %q annotation", annCacheVolumeStorageSize)
+	}
+
+	res, err := resource.ParseQuantity(resStr)
+	if err != nil {
+		return err
+	}
+
+	name := fmt.Sprintf("ci.%s.%s.%s", scope, org, repo)
 	if scope == "branch" {
 		name += "." + branch
+	}
+	if wfVolName, ok := wf.Annotations[annCacheVolumeName]; ok {
+		name = wfVolName
 	}
 
 	ls := labels.Set(
@@ -46,42 +74,46 @@ func (ws *workflowSyncer) ensurePVC(wf *workflow.Workflow) error {
 		ls["branch"] = branch
 	}
 
-	/*
-		opt := metav1.ListOptions{
-			LabelSelector: ls.AsSelector().String(),
-		}
-	*/
 	opt := metav1.GetOptions{}
 
-	pv, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Name).Get(name, opt)
+	pv, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(name, opt)
 	if err == nil {
+		for k, v := range ls {
+			v2, ok := pv.Labels[k]
+			if !ok || v != v2 {
+				return errors.New("cache pvc label mismatch")
+			}
+		}
+
 		return err
 	}
 	if !k8errors.IsNotFound(err) {
 		return err
 	}
 
-	res, err := resource.ParseQuantity(resStr)
-	if err != nil {
-		return err
+	spec := corev1.PersistentVolumeClaimSpec{
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceStorage: res,
+			},
+		},
+		AccessModes: []corev1.PersistentVolumeAccessMode{"ReadWriteOnce"},
+	}
+
+	if class != "" {
+		spec.StorageClassName = &class
 	}
 
 	pv = &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   name,
-			Labels: ls,
+			Name:      name,
+			Namespace: wf.Namespace,
+			Labels:    ls,
 		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			StorageClassName: &class,
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: res,
-				},
-			},
-		},
+		Spec: spec,
 	}
 
-	_, err = ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Name).Create(pv)
+	_, err = ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Create(pv)
 	if err != nil {
 		return err
 	}
