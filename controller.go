@@ -137,7 +137,8 @@ func wfName(prefix, owner, repo, branch string) string {
 	)
 
 	pfx := prefix + "."
-	maxNameLen := 63 - len(pfx)
+	// max length is 63, - 10 for the pod suffix, minus 1 for luck
+	maxNameLen := 52 - len(pfx)
 
 	if len(name) > maxNameLen {
 		nameOver := maxNameLen - len(name)
