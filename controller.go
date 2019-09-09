@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
@@ -127,14 +128,23 @@ type workflowSyncer struct {
 
 var sanitize = regexp.MustCompile(`[^-A-Za-z0-9]`)
 
-func wfName(prefix, owner, repo, sha string) string {
-	return fmt.Sprintf("%s.%s.%s.%s.%d",
-		prefix,
-		sanitize.ReplaceAllString(owner, "-"),
-		sanitize.ReplaceAllString(repo, "-"),
-		sanitize.ReplaceAllString(sha, "-"),
+func wfName(prefix, owner, repo, branch string) string {
+	name := fmt.Sprintf("%s.%s.%s.%d",
+		sanitize.ReplaceAllString(strings.ToLower(owner), "-"),
+		sanitize.ReplaceAllString(strings.ToLower(repo), "-"),
+		sanitize.ReplaceAllString(strings.ToLower(branch), "-"),
 		time.Now().Unix(),
 	)
+
+	pfx := prefix + "."
+	maxNameLen := 63 - len(pfx)
+
+	if len(name) > maxNameLen {
+		nameOver := maxNameLen - len(name)
+		name = name[nameOver*-1 : len(name)]
+	}
+
+	return pfx + name
 }
 
 // updateWorkflow, lots of these settings shoud come in from some config.
