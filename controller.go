@@ -126,7 +126,8 @@ type workflowSyncer struct {
 	argoUIBase string
 }
 
-var sanitize = regexp.MustCompile(`[^-A-Za-z0-9]`)
+var sanitize = regexp.MustCompile(`[^-a-z0-9]`)
+var sanitizeToDNS = regexp.MustCompile(`^[-.0-9]*`)
 
 func wfName(prefix, owner, repo, branch string) string {
 	name := fmt.Sprintf("%s.%s.%s.%d",
@@ -144,6 +145,8 @@ func wfName(prefix, owner, repo, branch string) string {
 		nameOver := maxNameLen - len(name)
 		name = name[nameOver*-1 : len(name)]
 	}
+
+	name = sanitizeToDNS.ReplaceAllString(name, "")
 
 	return pfx + name
 }
