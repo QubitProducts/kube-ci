@@ -3,7 +3,7 @@ kind: Workflow
 spec:
   entrypoint: build
   volumes:
-  - name: ci-secrets
+  - name: pod-ci-secrets
     secret:
       secretName: ci-secrets
   templates:
@@ -37,7 +37,7 @@ spec:
       - name: GOOGLE_APPLICATION_CREDENTIALS
         value: "/.ci-secrets/gcloud-keyfile.json"
       volumeMounts:
-      - name: ci-secrets
+      - name: pod-ci-secrets
         mountPath: /.ci-secrets
     sidecars:
     - name: dind
