@@ -4,10 +4,8 @@ project:
     name: kube-ci
     version: "1.0"
     staging:
-      project: aws
-      cluster: aws-eu-stg
-      min_instances: '2'
-      max_instances: '2'
+      project: qubit-apps-eu-stg
+      cluster: europe-west1
       externalAccess: public
 
 kubernetes:
