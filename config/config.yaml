@@ -4,7 +4,7 @@ tolerations:
   value:   "ci"
 
 nodeSelector:
-  jenkins: "true"
+  ci: "true"
 
 templates:
   baton:
@@ -13,4 +13,4 @@ templates:
     deploy: /config/templates/baton-deploy.yml
 
 cacheDefaults:
-  storageClassName: standard-eu-west-1c
+  storageClassName: standard-new
