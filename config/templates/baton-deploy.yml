@@ -3,7 +3,7 @@ kind: Workflow
 spec:
   entrypoint: build
   volumes:
-  - name: pod-ci-secrets
+  - name: secrets
     secret:
       secretName: ci-secrets
   templates:
@@ -34,10 +34,11 @@ spec:
       env:
       - name: DOCKER_HOST 
         value: 127.0.0.1
+        value: tcp://127.0.0.1:2375
       - name: GOOGLE_APPLICATION_CREDENTIALS
         value: "/.ci-secrets/gcloud-keyfile.json"
       volumeMounts:
-      - name: pod-ci-secrets
+      - name: secrets
         mountPath: /.ci-secrets
     sidecars:
     - name: dind
