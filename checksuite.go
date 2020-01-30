@@ -107,7 +107,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		wf = wf.DeepCopy()
 		ads := int64(0)
 		wf.Spec.ActiveDeadlineSeconds = &ads
-		ws.client.Argoproj().Workflows(wf.Namespace).Update(wf)
+		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
 	}
 
 	wf = wf.DeepCopy()
@@ -134,7 +134,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		)
 	}
 
-	_, err = ws.client.Argoproj().Workflows(ws.config.Namespace).Create(wf)
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
 	if err != nil {
 		ghUpdateCheckRun(
 			ctx,

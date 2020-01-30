@@ -641,7 +641,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 
 	// We need to update the API object so that we know we've published the
 	// logs, we'll grab the latest one incase it has changed since we got here.
-	newwf, err := ws.client.Argoproj().Workflows(ws.config.Namespace).Get(wf.Name, metav1.GetOptions{})
+	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Get(wf.Name, metav1.GetOptions{})
 	if err != nil {
 		log.Printf("getting workflow %s/%s for annotations update failed, %v", newwf.Namespace, newwf.Name, err)
 		return
@@ -653,7 +653,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 	}
 	upwf.Annotations["kube-ci.qutics.com/annotations-published"] = "true"
 
-	_, err = ws.client.Argoproj().Workflows(ws.config.Namespace).Update(upwf)
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Update(upwf)
 	if err != nil {
 		log.Printf("workflow %s/%s update for annotations update failed, %v", upwf.Namespace, upwf.Name, err)
 	}
