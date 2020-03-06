@@ -1,26 +1,28 @@
 module github.com/QubitProducts/kube-ci
 
 require (
-	github.com/argoproj/argo v2.5.0-rc5+incompatible
+	github.com/18F/hmacauth v0.0.0-20151013130326-9232a6386b73
+	github.com/argoproj/argo v0.0.0-20200304212125-842739d7831c // v2.6.1
+	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869
 	github.com/bradleyfalzon/ghinstallation v0.1.2
-	github.com/emicklei/go-restful v2.8.1+incompatible // indirect
-	github.com/go-openapi/spec v0.18.0 // indirect
-	github.com/gogo/protobuf v1.3.1 // indirect
-	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/golang/groupcache v0.0.0-20190129154638-5b532d6fd5ef // indirect
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
+	github.com/golang/protobuf v1.3.3 // indirect
 	github.com/google/go-github/v22 v22.0.0
-	github.com/googleapis/gnostic v0.2.0 // indirect
-	github.com/gregjones/httpcache v0.0.0-20190203031600-7a902570cb17 // indirect
-	github.com/imdario/mergo v0.3.6 // indirect
+	github.com/gorilla/websocket v1.4.1
+	github.com/kr/pretty v0.2.0 // indirect
 	github.com/mattn/go-shellwords v1.0.5
-	github.com/pkg/errors v0.8.1
-	github.com/prometheus/client_golang v0.9.2
-	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/yaml.v1 v1.0.0-20140924161607-9f9df34309c0
-	gopkg.in/yaml.v2 v2.2.4
-	k8s.io/api v0.0.0-20191114100352-16d7abae0d2a
-	k8s.io/apimachinery v0.0.0-20191028221656-72ed19daf4bb
-	k8s.io/client-go v0.0.0-20191114101535-6c5935290e33
+	github.com/opentracing-contrib/go-stdlib v0.0.0-20190519235532-cf7a6c988dc9
+	github.com/opentracing/opentracing-go v1.1.0
+	github.com/pkg/errors v0.9.1
+	github.com/prometheus/client_golang v1.0.0
+	golang.org/x/crypto v0.0.0-20200128174031-69ecbb4d6d5d // indirect
+	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa // indirect
+	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
+	golang.org/x/sys v0.0.0-20200124204421-9fbb57f87de9 // indirect
+	gopkg.in/yaml.v2 v2.2.8
+	k8s.io/api v0.0.0-20191219150132-17cfeff5d095
+	k8s.io/apimachinery v0.16.7-beta.0
+	k8s.io/client-go v0.0.0-20191225075139-73fd2ddc9180
 )
 
 go 1.13
