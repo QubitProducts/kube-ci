@@ -2,6 +2,7 @@
 
 exec /app/oauth2_proxy \
   -email-domain=* \
+  -github-org=qubitdigital \
   -client-id={{ lookup "oauth2-id" | quote }} \
   -client-secret={{ lookup "oauth2-secret" | quote }} \
   -cookie-secret={{ lookup "cookie-secret" | quote }} \
