@@ -22,6 +22,8 @@ kubernetes:
   ports:
     - name: webhook-http
       containerPort: 8080
+    - name: http # this is atually in the other container
+      containerPort: 8081
   livenessProbe:
     httpGet:
       path: /status
@@ -39,7 +41,7 @@ kubernetes:
       livenessProbe:
         httpGet:
           path: /ping
-          port: http
+          port: 8081
           scheme: HTTP
         timeoutSeconds: 3
         failureThreshold: 10

@@ -1,7 +1,6 @@
 #!/bin/sh
 
 exec /app/oauth2_proxy \
-  -github-org=qubitdigital \
   -email-domain=* \
   -client-id={{ lookup "oauth2-id" | quote }} \
   -client-secret={{ lookup "oauth2-secret" | quote }} \

@@ -20,7 +20,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect
 	github.com/prometheus/client_golang v1.0.0
-	github.com/pusher/oauth2_proxy v3.2.0+incompatible
+	github.com/pusher/oauth2_proxy v1.1.2-0.20200308153134-e3fb25efe6c5
 	github.com/rakyll/statik v0.1.7 // indirect
 	github.com/yhat/wsutil v0.0.0-20170731153501-1d66fa95c997 // indirect
 	golang.org/x/crypto v0.0.0-20200128174031-69ecbb4d6d5d // indirect
