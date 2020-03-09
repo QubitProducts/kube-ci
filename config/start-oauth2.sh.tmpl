@@ -1,0 +1,20 @@
+#!/bin/sh
+
+exec /app/oauth2_proxy \
+  -github-org=qubitdigital \
+  -email-domain=* \
+  -client-id={{ lookup "oauth2-id" | quote }} \
+  -client-secret={{ lookup "oauth2-secret" | quote }} \
+  -cookie-secret={{ lookup "cookie-secret" | quote }} \
+  -cookie-httponly=false \
+  -http-address=:8081 \
+  -cookie-name="_kubeci_oauth2_proxy" \
+  -skip-auth-regex=^/webhooks/github$ \
+  -provider=github \
+  -upstream=http://localhost:8080/webhooks/github \
+  -upstream=http://argo-server.argo:2746 \
+  -pass-host-header \
+  -skip-provider-button \
+  -redirect-url=https://kube-ci-staging.qutics.com/oauth2/callback \
+  "$*"
+
