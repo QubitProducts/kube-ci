@@ -434,6 +434,7 @@ func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
 }
 
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
+	log.Printf("got workflow: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
 	if _, ok := wf.Annotations["kube-ci.qutics.com/annotations-published"]; ok {
 		log.Printf("ignoring %s/%s, already completed", wf.Namespace, wf.Name)
 		return nil
@@ -785,14 +786,24 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		case "requested", "rerequested":
 			return ws.webhookCheckSuite(ctx, event)
 		default:
-			return http.StatusOK, "unknown action ignore"
+			log.Printf("unknown cheksuite action %q ignored", *event.Action)
+			return http.StatusOK, "unknown cheksuite action ignored"
 		}
 	case *github.CheckRunEvent:
 		switch *event.Action {
+		case "requested", "rerequested":
+			ev := &github.CheckSuiteEvent{
+				Org:          event.Org,
+				Repo:         event.Repo,
+				CheckSuite:   event.CheckRun.GetCheckSuite(),
+				Installation: event.Installation,
+			}
+			return ws.webhookCheckSuite(ctx, ev)
 		case "requested_action":
-			return ws.webhookCheckRunRequestAction(ctx, event)
+			return http.StatusOK, "unknown checkrun action ignored"
 		default:
-			return http.StatusOK, "unknown action ignore"
+			log.Printf("unknown chekrun action %q ignored", *event.Action)
+			return http.StatusOK, "unknown checkrun action ignored"
 		}
 	case *github.DeploymentEvent:
 		return ws.webhookDeployment(ctx, event)
