@@ -433,11 +433,54 @@ func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
 	}, nil
 }
 
+func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workflow, error) {
+	newWf := wf.DeepCopy()
+
+	cr, err := crInfoFromWorkflow(wf)
+	if err != nil {
+		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
+	}
+
+	ghClient, err := ws.ghClientSrc.getClient(int(cr.instID))
+	if err != nil {
+		return nil, err
+	}
+
+	newCR, _, err := ghClient.Checks.CreateCheckRun(context.TODO(),
+		cr.orgName,
+		cr.repoName,
+		github.CreateCheckRunOptions{
+			Name:       "Argo Workflow",
+			HeadBranch: cr.headBranch,
+			HeadSHA:    cr.headSHA,
+			Status:     github.String("queued"),
+		},
+	)
+
+	newWf.Annotations["kube-ci.qutics.com/annotations-published"] = "false"
+	newWf.Annotations["kube-ci.qutics.com/check-run-name"] = newCR.GetName()
+	newWf.Annotations["kube-ci.qutics.com/check-run-id"] = strconv.Itoa(int(newCR.GetID()))
+
+	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(newWf)
+}
+
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
+	var err error
+
 	log.Printf("got workflow: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
-	if _, ok := wf.Annotations["kube-ci.qutics.com/annotations-published"]; ok {
-		log.Printf("ignoring %s/%s, already completed", wf.Namespace, wf.Name)
-		return nil
+
+	if v, ok := wf.Annotations["kube-ci.qutics.com/annotations-published"]; ok && v == "true" {
+		switch wf.Status.Phase {
+		case workflow.NodePending, workflow.NodeRunning: // attempt create new checkrun for a resubmitted job
+			wf, err = ws.resetCheckRun(wf)
+			if err != nil {
+				log.Printf("failed checkrun reset, %v", err)
+				return nil
+			}
+		default:
+			log.Printf("ignoring %s/%s, already completed", wf.Namespace, wf.Name)
+			return nil
+		}
 	}
 
 	cr, err := crInfoFromWorkflow(wf)
@@ -800,7 +843,7 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 			}
 			return ws.webhookCheckSuite(ctx, ev)
 		case "requested_action":
-			return http.StatusOK, "unknown checkrun action ignored"
+			return ws.webhookCheckRunRequestAction(ctx, event)
 		default:
 			log.Printf("unknown chekrun action %q ignored", *event.Action)
 			return http.StatusOK, "unknown checkrun action ignored"
