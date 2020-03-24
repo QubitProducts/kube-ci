@@ -59,6 +59,13 @@ var (
 	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
 	annCacheVolumeStorageSize      = "kube-ci.qutics.com/cacheSize"
 	annCacheVolumeStorageClassName = "kube-ci.qutics.com/cacheStorageClassName"
+
+	labelManagedBy   = "managedBy"
+	labelWFType      = "wfType"
+	labelOrg         = "org"
+	labelRepo        = "repo"
+	labelBranch      = "branch"
+	labelDetailsHash = "detailsHash"
 )
 
 type githubKeyStore struct {
@@ -139,29 +146,36 @@ type workflowSyncer struct {
 	argoUIBase string
 }
 
-var sanitize = regexp.MustCompile(`[^-a-z0-9]`)
-var sanitizeToDNS = regexp.MustCompile(`^[-.0-9]*`)
+var sanitize = regexp.MustCompile(`[^-a-z0-9/]`)
+var sanitizeToDNS = regexp.MustCompile(`^[-.0-9/]*`)
 
-func wfName(prefix, owner, repo, branch string) string {
-	name := fmt.Sprintf("%s.%s.%s.%d",
-		sanitize.ReplaceAllString(strings.ToLower(owner), "-"),
-		sanitize.ReplaceAllString(strings.ToLower(repo), "-"),
-		sanitize.ReplaceAllString(strings.ToLower(branch), "-"),
-		time.Now().Unix(),
-	)
+func escape(str string) string {
+	return sanitize.ReplaceAllString(strings.ToLower(str), "-")
+}
 
-	pfx := prefix + "."
-	// max length is 63, - 10 for the pod suffix, minus 1 for luck
-	maxNameLen := 52 - len(pfx)
-
-	if len(name) > maxNameLen {
-		nameOver := maxNameLen - len(name)
-		name = name[nameOver*-1 : len(name)]
+func labelSafe(strs ...string) string {
+	escStrs := make([]string, len(strs))
+	for i := 0; i < len(strs); i++ {
+		escStrs[i] = escape(strs[i])
 	}
 
-	name = sanitizeToDNS.ReplaceAllString(name, "")
+	str := strings.Join(escStrs, ".")
 
-	return pfx + name
+	maxLen := 50
+	if len(str) > maxLen {
+		strOver := maxLen - len(str)
+		str = str[strOver*-1 : len(str)]
+	}
+
+	return sanitizeToDNS.ReplaceAllString(str, "-")
+}
+
+func wfName(prefix, owner, repo, branch string) string {
+	timeStr := strconv.Itoa(int(time.Now().Unix()))
+	if len(prefix) > 0 {
+		return labelSafe(prefix, owner, repo, branch, timeStr)
+	}
+	return labelSafe(owner, repo, branch, timeStr)
 }
 
 // updateWorkflow, lots of these settings shoud come in from some config.
@@ -225,11 +239,12 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	if wf.Labels == nil {
 		wf.Labels = make(map[string]string)
 	}
-	wf.Labels["managedBy"] = "kube-ci"
-	wf.Labels["wfType"] = wfType
-	wf.Labels["org"] = *event.Repo.Owner.Login
-	wf.Labels["repo"] = *event.Repo.Name
-	wf.Labels["branch"] = *event.CheckSuite.HeadBranch
+	wf.Labels[labelManagedBy] = "kube-ci"
+	wf.Labels[labelWFType] = wfType
+	wf.Labels[labelOrg] = labelSafe(*event.Repo.Owner.Login)
+	wf.Labels[labelRepo] = labelSafe(*event.Repo.Name)
+	wf.Labels[labelBranch] = labelSafe(*event.CheckSuite.HeadBranch)
+	wf.Labels[labelDetailsHash] = detailsHash(*event.Repo.Owner.Login, *event.Repo.Name, *event.CheckSuite.HeadBranch)
 
 	if wf.Annotations == nil {
 		wf.Annotations = make(map[string]string)

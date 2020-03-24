@@ -48,23 +48,24 @@ func (ws *workflowSyncer) ensurePVC(
 		return err
 	}
 
-	name := fmt.Sprintf("ci.%s.%s.%s", scope, org, repo)
+	name := labelSafe("ci", scope, org, repo)
 	if scope == "branch" {
-		name += "." + branch
+		name = labelSafe("ci", scope, org, repo, branch)
 	}
+
 	if wfVolName, ok := wf.Annotations[annCacheVolumeName]; ok {
 		name = wfVolName
 	}
 
 	ls := labels.Set(
 		map[string]string{
-			"managedBy": "kube-ci",
-			"org":       org,
-			"repo":      repo,
+			labelManagedBy: "kube-ci",
+			labelOrg:       labelSafe(org),
+			labelRepo:      labelSafe(repo),
 		})
 
 	if scope == "branch" {
-		ls["branch"] = branch
+		ls[labelBranch] = labelSafe(branch)
 	}
 
 	opt := metav1.GetOptions{}

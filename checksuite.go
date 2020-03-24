@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,6 +26,16 @@ import (
 	"github.com/google/go-github/v22/github"
 	"k8s.io/apimachinery/pkg/labels"
 )
+
+func detailsHash(org, repo, branch string) string {
+	h := sha1.New()
+	_, _ = h.Write([]byte(org))
+	_, _ = h.Write([]byte(repo))
+	_, _ = h.Write([]byte(branch))
+	bs := h.Sum(nil)
+
+	return "ci" + string(bs)
+}
 
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
 	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
@@ -98,9 +109,10 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 	// repo/branch
 	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
 		map[string]string{
-			"org":    *event.Repo.Owner.Login,
-			"repo":   *event.Repo.Name,
-			"branch": *event.CheckSuite.HeadBranch,
+			labelOrg:         labelSafe(*event.Repo.Owner.Login),
+			labelRepo:        labelSafe(*event.Repo.Name),
+			labelBranch:      labelSafe(*event.CheckSuite.HeadBranch),
+			labelDetailsHash: detailsHash(*event.Repo.Owner.Login, *event.Repo.Name, *event.CheckSuite.HeadBranch),
 		}).AsSelector())
 
 	for _, wf := range wfs {
