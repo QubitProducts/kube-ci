@@ -46,7 +46,20 @@ import (
 	"k8s.io/client-go/util/workqueue"
 )
 
-var ()
+var (
+	annCommit                      = "kube-ci.qutics.com/sha"
+	annBranch                      = "kube-ci.qutics.com/branch"
+	annRepo                        = "kube-ci.qutics.com/repo"
+	annOrg                         = "kube-ci.qutics.com/org"
+	annInstID                      = "kube-ci.qutics.com/github-install-id"
+	annCheckRunName                = "kube-ci.qutics.com/check-run-name"
+	annCheckRunID                  = "kube-ci.qutics.com/check-run-id"
+	annAnnotationsPublished        = "kube-ci.qutics.com/annotations-published"
+	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
+	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
+	annCacheVolumeStorageSize      = "kube-ci.qutics.com/cacheSize"
+	annCacheVolumeStorageClassName = "kube-ci.qutics.com/cacheStorageClassName"
+)
 
 type githubKeyStore struct {
 	baseTransport http.RoundTripper
@@ -222,15 +235,15 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 		wf.Annotations = make(map[string]string)
 	}
 
-	wf.Annotations["kube-ci.qutics.com/sha"] = *event.CheckSuite.HeadSHA
-	wf.Annotations["kube-ci.qutics.com/branch"] = *event.CheckSuite.HeadBranch
-	wf.Annotations["kube-ci.qutics.com/repo"] = *event.Repo.Name
-	wf.Annotations["kube-ci.qutics.com/org"] = *event.Repo.Owner.Login
+	wf.Annotations[annCommit] = *event.CheckSuite.HeadSHA
+	wf.Annotations[annBranch] = *event.CheckSuite.HeadBranch
+	wf.Annotations[annRepo] = *event.Repo.Name
+	wf.Annotations[annOrg] = *event.Repo.Owner.Login
 
-	wf.Annotations["kube-ci.qutics.com/github-install-id"] = strconv.Itoa(int(*event.Installation.ID))
+	wf.Annotations[annInstID] = strconv.Itoa(int(*event.Installation.ID))
 
-	wf.Annotations["kube-ci.qutics.com/check-run-name"] = *cr.Name
-	wf.Annotations["kube-ci.qutics.com/check-run-id"] = strconv.Itoa(int(*cr.ID))
+	wf.Annotations[annCheckRunName] = *cr.Name
+	wf.Annotations[annCheckRunID] = strconv.Itoa(int(*cr.ID))
 }
 
 func (ws *workflowSyncer) enqueue(obj interface{}) {
@@ -382,7 +395,7 @@ type crInfo struct {
 }
 
 func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
-	instIDStr, ok := wf.Annotations["kube-ci.qutics.com/github-install-id"]
+	instIDStr, ok := wf.Annotations[annInstID]
 	if !ok {
 		return nil, fmt.Errorf("could not get github installation id for  %s/%s", wf.Namespace, wf.Name)
 	}
@@ -392,28 +405,28 @@ func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
 		return nil, fmt.Errorf("could not convert installation id for %s/%s to int", wf.Namespace, wf.Name)
 	}
 
-	headSHA, ok := wf.Annotations["kube-ci.qutics.com/sha"]
+	headSHA, ok := wf.Annotations[annCommit]
 	if !ok {
 		return nil, fmt.Errorf("could not get commit sha for %s/%s", wf.Namespace, wf.Name)
 	}
-	headBranch, ok := wf.Annotations["kube-ci.qutics.com/branch"]
+	headBranch, ok := wf.Annotations[annBranch]
 	if !ok {
 		return nil, fmt.Errorf("could not get commit branch for %s/%s", wf.Namespace, wf.Name)
 	}
-	orgName, ok := wf.Annotations["kube-ci.qutics.com/org"]
+	orgName, ok := wf.Annotations[annOrg]
 	if !ok {
 		return nil, fmt.Errorf("could not get github org for %s/%s", wf.Namespace, wf.Name)
 	}
-	repoName, ok := wf.Annotations["kube-ci.qutics.com/repo"]
+	repoName, ok := wf.Annotations[annRepo]
 	if !ok {
 		return nil, fmt.Errorf("could not get github repo name for %s/%s", wf.Namespace, wf.Name)
 	}
-	checkRunName, ok := wf.Annotations["kube-ci.qutics.com/check-run-name"]
+	checkRunName, ok := wf.Annotations[annCheckRunName]
 	if !ok {
 		return nil, fmt.Errorf("could not get check run name for %s/%s", wf.Namespace, wf.Name)
 	}
 
-	checkRunIDStr, ok := wf.Annotations["kube-ci.qutics.com/check-run-id"]
+	checkRunIDStr, ok := wf.Annotations[annCheckRunID]
 	if !ok {
 		return nil, fmt.Errorf("could not get check run id for  %s/%s", wf.Namespace, wf.Name)
 	}
@@ -457,9 +470,9 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		},
 	)
 
-	newWf.Annotations["kube-ci.qutics.com/annotations-published"] = "false"
-	newWf.Annotations["kube-ci.qutics.com/check-run-name"] = newCR.GetName()
-	newWf.Annotations["kube-ci.qutics.com/check-run-id"] = strconv.Itoa(int(newCR.GetID()))
+	newWf.Annotations[annAnnotationsPublished] = "false"
+	newWf.Annotations[annCheckRunName] = newCR.GetName()
+	newWf.Annotations[annCheckRunID] = strconv.Itoa(int(newCR.GetID()))
 
 	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(newWf)
 }
@@ -469,7 +482,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 	log.Printf("got workflow: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
 
-	if v, ok := wf.Annotations["kube-ci.qutics.com/annotations-published"]; ok && v == "true" {
+	if v, ok := wf.Annotations[annAnnotationsPublished]; ok && v == "true" {
 		switch wf.Status.Phase {
 		case workflow.NodePending, workflow.NodeRunning: // attempt create new checkrun for a resubmitted job
 			wf, err = ws.resetCheckRun(wf)
@@ -695,7 +708,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 	if upwf.Annotations == nil {
 		upwf.Annotations = map[string]string{}
 	}
-	upwf.Annotations["kube-ci.qutics.com/annotations-published"] = "true"
+	upwf.Annotations[annAnnotationsPublished] = "true"
 
 	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Update(upwf)
 	if err != nil {

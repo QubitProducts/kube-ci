@@ -12,13 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-var (
-	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
-	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
-	annCacheVolumeStorageSize      = "kube-ci.qutics.com/cacheSize"
-	annCacheVolumeStorageClassName = "kube-ci.qutics.com/cacheStorageClassName"
-)
-
 func (ws *workflowSyncer) ensurePVC(
 	wf *workflow.Workflow,
 	org string,
