@@ -17,7 +17,7 @@ package main
 import (
 	"context"
 	"crypto/sha1"
-	"encoding/base64"
+	"encoding/base32"
 	"fmt"
 	"log"
 	"net/http"
@@ -35,8 +35,8 @@ func detailsHash(org, repo, branch string) string {
 	_, _ = h.Write([]byte(repo))
 	_, _ = h.Write([]byte(branch))
 	bs := h.Sum(nil)
-	str := base64.StdEncoding.EncodeToString(bs)
-	return "ci" + strings.Replace(str, "=", "", -1)
+	str := base32.StdEncoding.EncodeToString(bs)
+	return "ci" + strings.Replace(str, "=+/", "", -1)
 }
 
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
