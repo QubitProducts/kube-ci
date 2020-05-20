@@ -232,6 +232,10 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 			Name:  "revision",
 			Value: event.CheckSuite.HeadSHA,
 		},
+		{
+			Name:  "branch",
+			Value: event.CheckSuite.HeadBranch,
+		},
 	}...)
 
 	wf.Spec.Arguments.Parameters = parms
