@@ -206,6 +206,9 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	var parms []workflow.Parameter
 	for _, p := range wf.Spec.Arguments.Parameters {
 		if p.Name == "repo" ||
+			p.Name == "pullRequestID" ||
+			p.Name == "pullRequestBaseBranch" ||
+			p.Name == "branch" ||
 			p.Name == "revision" ||
 			p.Name == "orgname" ||
 			p.Name == "reponame" {
@@ -237,6 +240,20 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 			Value: event.CheckSuite.HeadBranch,
 		},
 	}...)
+	if len(event.CheckSuite.PullRequests) != 0 {
+		pr := event.CheckSuite.PullRequests[0]
+		prid := strconv.Itoa(pr.GetNumber())
+		parms = append(parms, []workflow.Parameter{
+			{
+				Name:  "pullRequestID",
+				Value: &prid,
+			},
+			{
+				Name:  "pullRequestBaseBranch",
+				Value: pr.Base.Ref,
+			},
+		}...)
+	}
 
 	wf.Spec.Arguments.Parameters = parms
 
