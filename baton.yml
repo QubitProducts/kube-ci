@@ -19,6 +19,7 @@ kubernetes:
   - "-keyfile=/config/keyfile"
   - "-secretfile=/config/webhook-secret"
   - "-argo.ui.base=https://kube-ci-staging.qutics.com"
+  - "-idsfile=/config/ids"
   ports:
     - name: webhook-http
       containerPort: 8080

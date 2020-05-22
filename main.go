@@ -88,7 +88,7 @@ func main() {
 	requestGrace := flag.Duration("grace.requests", 1*time.Second, "delay before server starts shut down")
 	configfile := flag.String("config", "", "configuration options")
 	keyfile := flag.String("keyfile", "github-key", "github application key")
-	idsfile := flag.String("idsfiles", "", "newline delimited list of install-ids,if not provided, or empty, all intall-ids are accepted")
+	idsfile := flag.String("idsfile", "", "file containing newline delimited list of install-ids,if not provided, or empty, all intall-ids are accepted")
 	secretfile := flag.String("secretfile", "webhook-secret", "file containing your webhook secret")
 	appID := flag.Int("github.appid", 0, "github application ID")
 	argoUIBaseURL := flag.String("argo.ui.base", "http://argo", "file containing your webhook secret")
