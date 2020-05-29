@@ -25,9 +25,21 @@ import (
 )
 
 func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
-	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	org := event.GetRepo().GetOwner().Login
+
+	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID))
 	if err != nil {
-		return http.StatusBadRequest, err.Error()
+		return http.StatusBadRequest, "failed to create github client"
+	}
+
+	user := event.Deployment.Creator.Name
+	ok, _, err := ghClient.Organizations.IsMember(ctx, *org, *user)
+	if err != nil {
+		return http.StatusBadRequest, "failed to check org membership"
+	}
+
+	if !ok {
+		return http.StatusBadRequest, "deployment user not from our orgs"
 	}
 
 	logURL := fmt.Sprintf(

@@ -41,14 +41,30 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 		return http.StatusOK, ""
 	}
 
+	org := event.GetRepo().GetOwner().Login
+
+	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID))
+	if err != nil {
+		return http.StatusBadRequest, "failed to create github client"
+	}
+
+	user := event.Comment.GetUser()
+	ok, _, err := ghClient.Organizations.IsMember(ctx, *org, user.GetLogin())
+	if err != nil {
+		return http.StatusBadRequest, "failed to check org membership"
+	}
+	if !ok {
+		ws.slashComment(ctx, ghClient, event, "you must be an organisation member to execute commands")
+		return http.StatusOK, "ok"
+	}
+
 	if len(cmdparts) == 1 {
-		ws.slashUnknown(ctx, event)
+		ws.slashUnknown(ctx, ghClient, event)
 		return http.StatusOK, ""
 	}
 
 	cmd := cmdparts[1]
 
-	var err error
 	var args []string
 	if len(cmdparts) > 2 {
 		args, err = shellwords.Parse(cmdparts[2])
@@ -57,8 +73,9 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 		}
 	}
 
-	type slashCommand func(ctx context.Context, event *github.IssueCommentEvent, args ...string) error
+	type slashCommand func(ctx context.Context, ghc *github.Client, event *github.IssueCommentEvent, args ...string) error
 	handlers := map[string]slashCommand{
+		"run":    ws.slashRun,
 		"deploy": ws.slashDeploy,
 		"setup":  ws.slashSetup,
 	}
@@ -66,11 +83,11 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 	f, ok := handlers[cmd]
 
 	if !ok {
-		ws.slashUnknown(ctx, event, cmd)
+		ws.slashUnknown(ctx, ghClient, event, cmd)
 		return http.StatusOK, ""
 	}
 
-	err = f(ctx, event, args...)
+	err = f(ctx, ghClient, event, args...)
 	if err != nil {
 		log.Printf("slash command failed, %v", err)
 		return http.StatusBadRequest, err.Error()
@@ -79,13 +96,8 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 	return http.StatusOK, ""
 }
 
-func (ws *workflowSyncer) slashComment(ctx context.Context, event *github.IssueCommentEvent, body string) error {
-	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
-	if err != nil {
-		return errors.Wrap(err, "failed to create github client")
-	}
-
-	_, _, err = ghClient.Issues.CreateComment(
+func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, body string) error {
+	_, _, err := ghClient.Issues.CreateComment(
 		ctx,
 		*event.Repo.Owner.Login,
 		*event.Repo.Name,
@@ -102,24 +114,23 @@ func (ws *workflowSyncer) slashComment(ctx context.Context, event *github.IssueC
 	return nil
 }
 
-func (ws *workflowSyncer) slashUnknown(ctx context.Context, event *github.IssueCommentEvent, args ...string) error {
+func (ws *workflowSyncer) slashUnknown(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
 	body := strings.TrimSpace(`
 Please issue a know command:
 - deploy [environment (default: "staging")]
 - setup TEMPLATENAME
 `)
-
-	return ws.slashComment(ctx, event, body)
+	return ws.slashComment(ctx, ghClient, event, body)
 }
 
-func (ws *workflowSyncer) slashDeploy(ctx context.Context, event *github.IssueCommentEvent, args ...string) error {
-	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
-	if err != nil {
-		return errors.Wrap(err, "failed to create github client")
-	}
+func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
+	return nil
 
+}
+
+func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) > 1 {
-		return errors.Wrap(err, "please specify one environment")
+		return ws.slashComment(ctx, ghClient, event, "please specify one environment")
 	}
 
 	env := "staging"
@@ -127,7 +138,7 @@ func (ws *workflowSyncer) slashDeploy(ctx context.Context, event *github.IssueCo
 		env = args[0]
 	}
 
-	_, sha, err := ws.issueHead(ctx, event)
+	_, sha, err := ws.issueHead(ctx, ghClient, event)
 	if err != nil {
 		return errors.Wrap(err, "cannot setup ci for repository")
 	}
@@ -153,26 +164,21 @@ func (ws *workflowSyncer) slashDeploy(ctx context.Context, event *github.IssueCo
 	return nil
 }
 
-func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCommentEvent, args ...string) error {
-	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
-	if err != nil {
-		return errors.Wrap(err, "failed to create github client")
-	}
-
+func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) != 1 {
-		ws.slashComment(ctx, event, "blah")
+		ws.slashComment(ctx, ghClient, event, "you mest specify a template")
 		return nil
 	}
 
 	tmpl, ok := ws.config.TemplateSet[args[0]]
 	if !ok {
-		ws.slashComment(ctx, event, "unknown template "+args[0])
+		ws.slashComment(ctx, ghClient, event, "unknown template "+args[0])
 		return nil
 	}
 
-	branch, sha, err := ws.issueHead(ctx, event)
+	branch, sha, err := ws.issueHead(ctx, ghClient, event)
 	if err != nil {
-		ws.slashComment(ctx, event, "blah")
+		ws.slashComment(ctx, ghClient, event, "blah")
 		return errors.Wrap(err, "cannot setup ci for repository")
 	}
 
@@ -213,7 +219,7 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCom
 
 	bs, err := ioutil.ReadFile(tmpl.CI)
 	if err != nil {
-		ws.slashComment(ctx, event, fmt.Sprintf("couldn't read template file %s, ci server config is broken!", fileName))
+		ws.slashComment(ctx, ghClient, event, fmt.Sprintf("couldn't read template file %s, ci server config is broken!", fileName))
 		return nil
 	}
 
@@ -238,12 +244,7 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, event *github.IssueCom
 	return nil
 }
 
-func (ws *workflowSyncer) issueHead(ctx context.Context, event *github.IssueCommentEvent) (string, string, error) {
-	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
-	if err != nil {
-		return "", "", errors.Wrap(err, "failed to create github client")
-	}
-
+func (ws *workflowSyncer) issueHead(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent) (string, string, error) {
 	if event.Issue.PullRequestLinks == nil {
 		branch, _, err := ghClient.Repositories.GetBranch(
 			ctx,

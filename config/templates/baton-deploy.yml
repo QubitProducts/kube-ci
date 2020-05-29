@@ -24,15 +24,15 @@ spec:
             key: ssh-private-key
     container:
       image: "gcr.io/qubit-registry/tools/kube-ci-build:latest"
-      args: 
+      args:
       - -e
       - {{workflow.parameters.environment}}
       - -s
-      - -t 
+      - -t
       - "gcr.io/qubit-registry/builds/{{workflow.parameters.orgName}}/{{workflow.parameters.repoName}}:{{workflow.parameters.revision}}"
       workingDir: /src
       env:
-      - name: DOCKER_HOST 
+      - name: DOCKER_HOST
         value: 127.0.0.1
         value: tcp://127.0.0.1:2375
       - name: GOOGLE_APPLICATION_CREDENTIALS

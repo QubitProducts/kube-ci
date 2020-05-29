@@ -73,9 +73,10 @@ type githubKeyStore struct {
 	appID         int
 	ids           []int
 	key           []byte
+	orgs          *regexp.Regexp
 }
 
-func (ks *githubKeyStore) getClient(installID int) (*github.Client, error) {
+func (ks *githubKeyStore) getClient(org string, installID int) (*github.Client, error) {
 	validID := false
 	for _, id := range ks.ids {
 		if installID == id {
@@ -88,6 +89,10 @@ func (ks *githubKeyStore) getClient(installID int) (*github.Client, error) {
 		return nil, fmt.Errorf("unknown installation %d", installID)
 	}
 
+	if ks.orgs != nil && !ks.orgs.MatchString(org) {
+		return nil, fmt.Errorf("refusing event from untrusted org %s", org)
+	}
+
 	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, installID, ks.key)
 	if err != nil {
 		return nil, err
@@ -97,7 +102,7 @@ func (ks *githubKeyStore) getClient(installID int) (*github.Client, error) {
 }
 
 type githubClientSource interface {
-	getClient(installID int) (*github.Client, error)
+	getClient(org string, installID int) (*github.Client, error)
 }
 
 // CacheSpec lets you choose the default settings for a
@@ -127,6 +132,11 @@ type Config struct {
 	NodeSelector  map[string]string `yaml:"nodeSelector"`
 	TemplateSet   TemplateSet       `yaml:"templates"`
 	CacheDefaults CacheSpec         `yaml:"cacheDefaults"`
+	BuildDraftPRs bool              `yaml:"buildDraftPRs"`
+	BuildBranches string            `yaml:"buildBranches"`
+
+	buildBranches *regexp.Regexp
+	secret        []byte
 }
 
 type workflowSyncer struct {
@@ -309,7 +319,7 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(int(cri.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID))
 	if err != nil {
 		return
 	}
@@ -490,7 +500,7 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(int(cr.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID))
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +548,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		return nil
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(int(cr.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID))
 	if err != nil {
 		return err
 	}
@@ -670,7 +680,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 		allAnns = append(allAnns, anns...)
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(int(cri.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID))
 	if err != nil {
 		return
 	}
@@ -865,15 +875,19 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		return http.StatusBadRequest, "request did not validate"
 	}
 
-	rawEvent, err := github.ParseWebHook(github.WebHookType(r), payload)
+	eventType := github.WebHookType(r)
+	rawEvent, err := github.ParseWebHook(eventType, payload)
 	if err != nil {
 		return http.StatusBadRequest, "could not parse request"
 	}
+
+	log.Printf("webhook event of type %s", eventType)
 
 	ctx := r.Context()
 
 	switch event := rawEvent.(type) {
 	case *github.CheckSuiteEvent:
+		log.Printf("check_suite %s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "requested", "rerequested":
 			return ws.webhookCheckSuite(ctx, event)
@@ -882,13 +896,15 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 			return http.StatusOK, "unknown cheksuite action ignored"
 		}
 	case *github.CheckRunEvent:
+		log.Printf("check_run %s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
-		case "requested", "rerequested":
+		case "rerequested":
 			ev := &github.CheckSuiteEvent{
 				Org:          event.Org,
 				Repo:         event.Repo,
 				CheckSuite:   event.CheckRun.GetCheckSuite(),
 				Installation: event.Installation,
+				Action:       event.Action,
 			}
 			return ws.webhookCheckSuite(ctx, ev)
 		case "requested_action":

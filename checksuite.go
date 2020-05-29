@@ -40,7 +40,7 @@ func detailsHash(org, repo, branch string) string {
 }
 
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
-	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID))
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -202,7 +202,7 @@ func ghUpdateCheckRun(
 }
 
 func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
-	ghClient, err := ws.ghClientSrc.getClient(int(*event.Installation.ID))
+	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID))
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}

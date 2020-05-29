@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -88,9 +89,10 @@ func main() {
 	requestGrace := flag.Duration("grace.requests", 1*time.Second, "delay before server starts shut down")
 	configfile := flag.String("config", "", "configuration options")
 	keyfile := flag.String("keyfile", "github-key", "github application key")
-	idsfile := flag.String("idsfile", "", "file containing newline delimited list of install-ids,if not provided, or empty, all intall-ids are accepted")
 	secretfile := flag.String("secretfile", "webhook-secret", "file containing your webhook secret")
 	appID := flag.Int("github.appid", 0, "github application ID")
+	idsfile := flag.String("idsfile", "", "file containing newline delimited list of install-ids to accept events from, if not provided, or empty, all intall-ids are accepted")
+	orgs := flag.String("orgs", "", "regex of orgs to accept events from, start and end anchors will be added")
 	argoUIBaseURL := flag.String("argo.ui.base", "http://argo", "file containing your webhook secret")
 
 	flag.Parse()
@@ -151,11 +153,19 @@ func main() {
 		}
 	}
 
-	ghSrc := &githubKeyStore{
-		baseTransport: http.DefaultTransport,
-		appID:         *appID,
-		key:           bytes.TrimSpace(keybs),
-		ids:           ids,
+	var orgsrx *regexp.Regexp
+	if len(*orgs) > 0 {
+		rxstr := *orgs
+		if !strings.HasPrefix(rxstr, "^") {
+			rxstr = "^" + rxstr
+		}
+		if !strings.HasSuffix(rxstr, "$") {
+			rxstr = rxstr + "$"
+		}
+		orgsrx, err = regexp.Compile(rxstr)
+		if err != nil {
+			log.Fatalf("failed to parse orgs regexp, %v", err)
+		}
 	}
 
 	secret, err := ioutil.ReadFile(*secretfile)
@@ -164,8 +174,10 @@ func main() {
 	}
 
 	wfconfig := Config{
-		CIFilePath: ".kube-ci/ci.yaml",
-		Namespace:  namespace,
+		CIFilePath:    ".kube-ci/ci.yaml",
+		Namespace:     namespace,
+		BuildDraftPRs: false,
+		BuildBranches: "master",
 	}
 
 	if *configfile != "" {
@@ -177,6 +189,19 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to parse config file, %v", err)
 		}
+	}
+
+	wfconfig.buildBranches, err = regexp.Compile(wfconfig.BuildBranches)
+	if err != nil {
+		log.Fatalf("failed to compile branches regexp, %v", err)
+	}
+
+	ghSrc := &githubKeyStore{
+		baseTransport: http.DefaultTransport,
+		appID:         *appID,
+		key:           bytes.TrimSpace(keybs),
+		ids:           ids,
+		orgs:          orgsrx,
 	}
 
 	wfSyncer := newWorkflowSyncer(
