@@ -801,12 +801,6 @@ func (ws *workflowSyncer) getFile(
 	if err != nil {
 		if ghErr, ok := err.(*github.ErrorResponse); ok {
 			if ghErr.Response.StatusCode == http.StatusNotFound {
-				log.Printf("no %s in %s/%s (%s)",
-					filename,
-					owner,
-					name,
-					sha,
-				)
 				return nil, os.ErrNotExist
 			}
 		}
@@ -823,26 +817,14 @@ func (ws *workflowSyncer) getWorkflow(
 	sha string,
 	filename string) (*workflow.Workflow, error) {
 
-	file, err := ghClient.Repositories.DownloadContents(
+	file, err := ws.getFile(
 		ctx,
+		ghClient,
 		owner,
 		name,
-		filename,
-		&github.RepositoryContentGetOptions{
-			Ref: sha,
-		})
+		sha,
+		filename)
 	if err != nil {
-		if ghErr, ok := err.(*github.ErrorResponse); ok {
-			if ghErr.Response.StatusCode == http.StatusNotFound {
-				log.Printf("no %s in %s/%s (%s)",
-					filename,
-					owner,
-					name,
-					sha,
-				)
-				return nil, os.ErrNotExist
-			}
-		}
 		return nil, err
 	}
 	defer file.Close()
@@ -887,16 +869,18 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 
 	switch event := rawEvent.(type) {
 	case *github.CheckSuiteEvent:
-		log.Printf("check_suite %s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
+		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
+		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "requested", "rerequested":
+			log.Printf("payload: %s", payload)
 			return ws.webhookCheckSuite(ctx, event)
 		default:
 			log.Printf("unknown cheksuite action %q ignored", *event.Action)
 			return http.StatusOK, "unknown cheksuite action ignored"
 		}
 	case *github.CheckRunEvent:
-		log.Printf("check_run %s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
+		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "rerequested":
 			ev := &github.CheckSuiteEvent{
