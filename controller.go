@@ -70,7 +70,7 @@ var (
 
 type githubKeyStore struct {
 	baseTransport http.RoundTripper
-	appID         int
+	appID         int64
 	ids           []int
 	key           []byte
 	orgs          *regexp.Regexp
@@ -93,7 +93,7 @@ func (ks *githubKeyStore) getClient(org string, installID int) (*github.Client, 
 		return nil, fmt.Errorf("refusing event from untrusted org %s", org)
 	}
 
-	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, installID, ks.key)
+	itr, err := ghinstallation.New(ks.baseTransport, int(ks.appID), installID, ks.key)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +140,7 @@ type Config struct {
 }
 
 type workflowSyncer struct {
+	appID    int64
 	ghSecret []byte
 
 	ghClientSrc githubClientSource
@@ -347,6 +348,7 @@ func newWorkflowSyncer(
 	clientset clientset.Interface,
 	sinf informers.SharedInformerFactory,
 	ghClientSrc githubClientSource,
+	appID int64,
 	ghSecret []byte,
 	baseURL string,
 	config Config,
@@ -355,6 +357,7 @@ func newWorkflowSyncer(
 	informer := sinf.Argoproj().V1alpha1().Workflows()
 
 	syncer := &workflowSyncer{
+		appID:       appID,
 		ghClientSrc: ghClientSrc,
 		ghSecret:    ghSecret,
 
@@ -869,17 +872,21 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 
 	switch event := rawEvent.(type) {
 	case *github.CheckSuiteEvent:
-		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
+		if event.GetCheckSuite().GetApp().GetID() != ws.appID {
+			return http.StatusOK, "ignoring, wrong appID"
+		}
 		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "requested", "rerequested":
-			log.Printf("payload: %s", payload)
 			return ws.webhookCheckSuite(ctx, event)
 		default:
 			log.Printf("unknown cheksuite action %q ignored", *event.Action)
 			return http.StatusOK, "unknown cheksuite action ignored"
 		}
 	case *github.CheckRunEvent:
+		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != ws.appID {
+			return http.StatusOK, "ignoring, wrong appID"
+		}
 		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "rerequested":
