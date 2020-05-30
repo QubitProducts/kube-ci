@@ -90,7 +90,7 @@ func main() {
 	configfile := flag.String("config", "", "configuration options")
 	keyfile := flag.String("keyfile", "github-key", "github application key")
 	secretfile := flag.String("secretfile", "webhook-secret", "file containing your webhook secret")
-	appID := flag.Int("github.appid", 0, "github application ID")
+	appID := flag.Int64("github.appid", 0, "github application ID")
 	idsfile := flag.String("idsfile", "", "file containing newline delimited list of install-ids to accept events from, if not provided, or empty, all intall-ids are accepted")
 	orgs := flag.String("orgs", "", "regex of orgs to accept events from, start and end anchors will be added")
 	argoUIBaseURL := flag.String("argo.ui.base", "http://argo", "file containing your webhook secret")
@@ -209,6 +209,7 @@ func main() {
 		wfClient,
 		sinf,
 		ghSrc,
+		*appID,
 		secret,
 		*argoUIBaseURL,
 		wfconfig,
