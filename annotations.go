@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/go-github/v22/github"
+	"github.com/google/go-github/v32/github"
 	"k8s.io/client-go/kubernetes"
 )
 

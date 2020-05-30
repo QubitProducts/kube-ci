@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v22/github"
+	"github.com/google/go-github/v32/github"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -74,7 +74,6 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 			*event.Repo.Name,
 			github.CreateCheckRunOptions{
 				Name:       "Argo Workflow",
-				HeadBranch: *event.CheckSuite.HeadBranch,
 				HeadSHA:    *event.CheckSuite.HeadSHA,
 				Status:     &status,
 				Conclusion: &conclusion,
@@ -93,13 +92,26 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		return http.StatusBadRequest, msg
 	}
 
+	if len(event.CheckSuite.PullRequests) > 0 {
+		onlyDrafts := true
+		for _, pr := range event.CheckSuite.PullRequests {
+			if !pr.GetDraft() {
+				onlyDrafts = false
+				break
+			}
+		}
+
+		if onlyDrafts && !ws.config.BuildDraftPRs {
+			return http.StatusOK, "skipping for draft PR"
+		}
+	}
+
 	cr, _, err := ghClient.Checks.CreateCheckRun(ctx,
 		*event.Org.Login,
 		*event.Repo.Name,
 		github.CreateCheckRunOptions{
-			Name:       "Argo Workflow",
-			HeadBranch: *event.CheckSuite.HeadBranch,
-			HeadSHA:    *event.CheckSuite.HeadSHA,
+			Name:    "Argo Workflow",
+			HeadSHA: *event.CheckSuite.HeadSHA,
 		},
 	)
 	if err != nil {

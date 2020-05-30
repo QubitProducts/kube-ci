@@ -34,7 +34,7 @@ import (
 	listers "github.com/argoproj/argo/pkg/client/listers/workflow/v1alpha1"
 
 	"github.com/bradleyfalzon/ghinstallation"
-	"github.com/google/go-github/v22/github"
+	"github.com/google/go-github/v32/github"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -334,7 +334,6 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		cri.checkRunID,
 		github.UpdateCheckRunOptions{
 			Name:        cri.checkRunName,
-			HeadBranch:  &cri.headBranch,
 			HeadSHA:     &cri.headSHA,
 			Status:      &status,
 			Conclusion:  &conclusion,
@@ -512,10 +511,9 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		cr.orgName,
 		cr.repoName,
 		github.CreateCheckRunOptions{
-			Name:       "Argo Workflow",
-			HeadBranch: cr.headBranch,
-			HeadSHA:    cr.headSHA,
-			Status:     github.String("queued"),
+			Name:    "Argo Workflow",
+			HeadSHA: cr.headSHA,
+			Status:  github.String("queued"),
 		},
 	)
 
@@ -631,7 +629,6 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		cr.checkRunID,
 		github.UpdateCheckRunOptions{
 			Name:        cr.checkRunName,
-			HeadBranch:  &cr.headBranch,
 			HeadSHA:     &cr.headSHA,
 			DetailsURL:  &wfURL,
 			Status:      &status,
@@ -705,10 +702,9 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 		cri.repoName,
 		cri.checkRunID,
 		github.UpdateCheckRunOptions{
-			Name:       cri.checkRunName,
-			HeadBranch: &cri.headBranch,
-			HeadSHA:    &cri.headSHA,
-			Actions:    actions,
+			Name:    cri.checkRunName,
+			HeadSHA: &cri.headSHA,
+			Actions: actions,
 		},
 	)
 
@@ -726,9 +722,8 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 			cri.repoName,
 			cri.checkRunID,
 			github.UpdateCheckRunOptions{
-				Name:       cri.checkRunName,
-				HeadBranch: &cri.headBranch,
-				HeadSHA:    &cri.headSHA,
+				Name:    cri.checkRunName,
+				HeadSHA: &cri.headSHA,
 
 				Output: &github.CheckRunOutput{
 					Title:       title,

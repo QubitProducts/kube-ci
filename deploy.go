@@ -21,7 +21,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/google/go-github/v22/github"
+	"github.com/google/go-github/v32/github"
 )
 
 func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {

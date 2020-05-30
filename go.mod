@@ -10,6 +10,7 @@ require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/golang/protobuf v1.3.3 // indirect
 	github.com/google/go-github/v22 v22.0.0
+	github.com/google/go-github/v32 v32.0.0
 	github.com/gorilla/websocket v1.4.1
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/mattn/go-shellwords v1.0.5
