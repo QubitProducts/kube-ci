@@ -56,7 +56,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 					title,
 					fmt.Sprintf("refusing to build non-local PR, org members can run them manually using `/kube-ci run`"),
 					"completed",
-					"skipped",
+					"failure",
 				)
 				return http.StatusOK, "not building non local PR"
 			}
@@ -80,7 +80,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 				title,
 				fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
 				"completed",
-				"skipped",
+				"failure",
 			)
 
 			if !baseMatched {
@@ -123,7 +123,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 			title,
 			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
 			"completed",
-			"skipped",
+			"failure",
 		)
 		log.Printf("not running %s %s, as it target unmatched base branches", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch())
 		return http.StatusOK, "skipping PR to unmatched base branch "
