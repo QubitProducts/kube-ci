@@ -191,9 +191,16 @@ func wfName(prefix, owner, repo, branch string) string {
 
 // updateWorkflow, lots of these settings shoud come in from some config.
 func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *github.CheckRun) {
+	owner := *event.Repo.Owner.Login
+	repo := *event.Repo.Name
+	headBranch := *event.CheckSuite.HeadBranch
+	headSHA := *event.CheckSuite.HeadSHA
+	gitURL := event.Repo.GetSSHURL()
+	instID := *event.Installation.ID
+
 	wfType := "ci"
 	wf.GenerateName = ""
-	wf.Name = wfName(wfType, *event.Repo.Owner.Login, *event.Repo.Name, *event.CheckSuite.HeadBranch)
+	wf.Name = wfName(wfType, owner, repo, headBranch)
 
 	if ws.config.Namespace != "" {
 		wf.Namespace = ws.config.Namespace
@@ -228,7 +235,6 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 		parms = append(parms, p)
 	}
 
-	gitURL := event.Repo.GetSSHURL()
 	parms = append(parms, []workflow.Parameter{
 		{
 			Name:  "repo",
@@ -236,19 +242,19 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 		},
 		{
 			Name:  "repoName",
-			Value: event.Repo.Name,
+			Value: &repo,
 		},
 		{
 			Name:  "orgName",
-			Value: event.Repo.Owner.Login,
+			Value: &owner,
 		},
 		{
 			Name:  "revision",
-			Value: event.CheckSuite.HeadSHA,
+			Value: &headSHA,
 		},
 		{
 			Name:  "branch",
-			Value: event.CheckSuite.HeadBranch,
+			Value: &headBranch,
 		},
 	}...)
 	if len(event.CheckSuite.PullRequests) != 0 {
@@ -273,21 +279,21 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	}
 	wf.Labels[labelManagedBy] = "kube-ci"
 	wf.Labels[labelWFType] = wfType
-	wf.Labels[labelOrg] = labelSafe(*event.Repo.Owner.Login)
-	wf.Labels[labelRepo] = labelSafe(*event.Repo.Name)
-	wf.Labels[labelBranch] = labelSafe(*event.CheckSuite.HeadBranch)
-	wf.Labels[labelDetailsHash] = detailsHash(*event.Repo.Owner.Login, *event.Repo.Name, *event.CheckSuite.HeadBranch)
+	wf.Labels[labelOrg] = labelSafe(owner)
+	wf.Labels[labelRepo] = labelSafe(repo)
+	wf.Labels[labelBranch] = labelSafe(headBranch)
+	wf.Labels[labelDetailsHash] = detailsHash(owner, repo, headBranch)
 
 	if wf.Annotations == nil {
 		wf.Annotations = make(map[string]string)
 	}
 
-	wf.Annotations[annCommit] = *event.CheckSuite.HeadSHA
-	wf.Annotations[annBranch] = *event.CheckSuite.HeadBranch
-	wf.Annotations[annRepo] = *event.Repo.Name
-	wf.Annotations[annOrg] = *event.Repo.Owner.Login
+	wf.Annotations[annCommit] = headSHA
+	wf.Annotations[annBranch] = headBranch
+	wf.Annotations[annRepo] = repo
+	wf.Annotations[annOrg] = owner
 
-	wf.Annotations[annInstID] = strconv.Itoa(int(*event.Installation.ID))
+	wf.Annotations[annInstID] = strconv.Itoa(int(instID))
 
 	wf.Annotations[annCheckRunName] = *cr.Name
 	wf.Annotations[annCheckRunID] = strconv.Itoa(int(*cr.ID))

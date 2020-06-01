@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"github.com/google/go-github/v32/github"
 	"github.com/mattn/go-shellwords"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github.IssueCommentEvent) (int, string) {
@@ -124,8 +126,151 @@ Please issue a know command:
 }
 
 func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
-	return nil
+	owner := event.Repo.GetOwner().GetLogin()
+	repo := event.Repo.GetName()
+	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID))
+	if err != nil {
+		return err
+	}
 
+	prlinks := event.GetIssue().GetPullRequestLinks()
+	if prlinks == nil {
+		body := strings.TrimSpace(`
+    run is only valid on PR comments
+	`)
+		return ws.slashComment(ctx, ghClient, event, body)
+	}
+
+	parts := strings.Split(prlinks.GetURL(), "/")
+	pridstr := parts[len(parts)-1]
+	prid, _ := strconv.Atoi(pridstr)
+	pr, _, err := ghClient.PullRequests.Get(ctx, owner, repo, prid)
+	if err != nil {
+		return errors.Wrap(err, "failed lookup up PR")
+	}
+	if pr == nil {
+		return errors.New("failed lookup up PR")
+	}
+
+	headsha := pr.GetHead().GetSHA()
+	wf, err := ws.getWorkflow(
+		ctx,
+		ghClient,
+		owner,
+		repo,
+		headsha,
+		ws.config.CIFilePath,
+	)
+
+	if os.IsNotExist(err) {
+		log.Printf("no %s in %s/%s (%s)",
+			ws.config.CIFilePath,
+			owner,
+			repo,
+			headsha,
+		)
+		body := fmt.Sprintf("kube-ci config ```%s``` not found in this branch", ws.config.CIFilePath)
+		return ws.slashComment(ctx, ghClient, event, body)
+	}
+
+	title := "Workflow Setup"
+	cr, _, crerr := ghClient.Checks.CreateCheckRun(ctx,
+		owner,
+		repo,
+		github.CreateCheckRunOptions{
+			Name:    "Argo Workflow",
+			HeadSHA: headsha,
+		},
+	)
+	if crerr != nil {
+		log.Printf("Unable to create check run, %v", err)
+		return fmt.Errorf("unable to create check run, %w", err)
+	}
+
+	if err != nil {
+		msg := fmt.Sprintf("unable to parse workflow, %v", err)
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			owner,
+			repo,
+			*cr.ID,
+			title,
+			msg,
+			"completed",
+			"failure",
+		)
+		return ws.slashComment(ctx, ghClient, event, msg)
+	}
+
+	headref := pr.GetHead().GetRef()
+	// We'll cancel all in-progress checks for this
+	// repo/branch
+	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
+		map[string]string{
+			labelOrg:         labelSafe(*event.Repo.Owner.Login),
+			labelRepo:        labelSafe(*event.Repo.Name),
+			labelBranch:      labelSafe(headref),
+			labelDetailsHash: detailsHash(owner, repo, headref),
+		}).AsSelector())
+
+	for _, wf := range wfs {
+		wf = wf.DeepCopy()
+		ads := int64(0)
+		wf.Spec.ActiveDeadlineSeconds = &ads
+		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
+	}
+
+	wf = wf.DeepCopy()
+	ws.updateWorkflow(wf, &github.CheckSuiteEvent{
+		Repo:         event.GetRepo(),
+		Installation: event.GetInstallation(),
+		CheckSuite: &github.CheckSuite{
+			PullRequests: []*github.PullRequest{pr},
+			HeadBranch:   pr.Head.Ref,
+			HeadSHA:      pr.Head.SHA,
+		},
+	}, cr)
+
+	err = ws.ensurePVC(
+		wf,
+		owner,
+		repo,
+		headref,
+		ws.config.CacheDefaults,
+	)
+	if err != nil {
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			owner,
+			repo,
+			*cr.ID,
+			title,
+			fmt.Sprintf("creation of cache volume failed, %v", err),
+			"completed",
+			"failure",
+		)
+	}
+
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
+	if err != nil {
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			owner,
+			repo,
+			*cr.ID,
+			title,
+			fmt.Sprintf("argo workflow creation failed, %v", err),
+			"completed",
+			"failure",
+		)
+
+		return fmt.Errorf("argo workflow creation failed, %w", err)
+	}
+
+	return nil
 }
 
 func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
