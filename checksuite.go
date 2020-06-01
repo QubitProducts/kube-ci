@@ -39,6 +39,94 @@ func detailsHash(org, repo, branch string) string {
 	return "ci" + strings.Replace(str, "=+/", "", -1)
 }
 
+// policy enforces the main build policy:
+// - only build Draft PRs if the configured to do so.
+// - only build PRs that are targeted at one of our valid base branches
+func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, event *github.CheckSuiteEvent, title string, cr *github.CheckRun) (int, string) {
+	if len(event.CheckSuite.PullRequests) > 0 {
+		baseMatched := false
+		onlyDrafts := true
+		for _, pr := range event.CheckSuite.PullRequests {
+			if *pr.Head.Repo.URL != *pr.Base.Repo.URL ||
+				*pr.Head.Repo.URL != *event.Repo.URL {
+				ghUpdateCheckRun(
+					ctx,
+					ghClient,
+					*event.Org.Login,
+					*event.Repo.Name,
+					*cr.ID,
+					title,
+					fmt.Sprintf("refusing to build non-local PR, org members can run them manually using `/kube-ci run`"),
+					"completed",
+					"skipped",
+				)
+				return http.StatusOK, "not building non local PR"
+			}
+
+			if ws.config.buildBranches != nil &&
+				!baseMatched &&
+				ws.config.buildBranches.MatchString(pr.GetBase().GetRef()) {
+				baseMatched = true
+			}
+
+			if !pr.GetDraft() {
+				onlyDrafts = false
+				break
+			}
+		}
+
+		if onlyDrafts && !ws.config.BuildDraftPRs {
+			ghUpdateCheckRun(
+				ctx,
+				ghClient,
+				*event.Org.Login,
+				*event.Repo.Name,
+				*cr.ID,
+				title,
+				fmt.Sprintf("auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`"),
+				"completed",
+				"failure",
+			)
+			log.Printf("not running %s %s, as it is only used in draft PRs", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch())
+			return http.StatusOK, "skipping draft PR"
+		}
+
+		if ws.config.buildBranches != nil && !baseMatched {
+			ghUpdateCheckRun(
+				ctx,
+				ghClient,
+				*event.Org.Login,
+				*event.Repo.Name,
+				*cr.ID,
+				title,
+				fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+				"completed",
+				"skipped",
+			)
+			return http.StatusOK, "skipping unmatched base branch"
+		}
+
+		return 0, ""
+	}
+
+	// this commit was not for a PR, so we confirm we should build for the head branch it was targettted at
+	if ws.config.buildBranches != nil && !ws.config.buildBranches.MatchString(event.CheckSuite.GetHeadBranch()) {
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			*event.Org.Login,
+			*event.Repo.Name,
+			*cr.ID,
+			title,
+			fmt.Sprintf("checks are not automatically run fori base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+			"completed",
+			"skipped",
+		)
+	}
+
+	return 0, ""
+}
+
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
 	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID))
 	if err != nil {
@@ -65,48 +153,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 	}
 
 	title := "Workflow Setup"
-	if err != nil {
-		msg := fmt.Sprintf("unable to parse workflow, %v", err)
-		status := "completed"
-		conclusion := "failure"
-		_, _, err := ghClient.Checks.CreateCheckRun(ctx,
-			*event.Org.Login,
-			*event.Repo.Name,
-			github.CreateCheckRunOptions{
-				Name:       "Argo Workflow",
-				HeadSHA:    *event.CheckSuite.HeadSHA,
-				Status:     &status,
-				Conclusion: &conclusion,
-				CompletedAt: &github.Timestamp{
-					Time: time.Now(),
-				},
-				Output: &github.CheckRunOutput{
-					Title:   &title,
-					Summary: &msg,
-				},
-			},
-		)
-		if err != nil {
-			log.Printf("failed to create CR, %v", err)
-		}
-		return http.StatusBadRequest, msg
-	}
-
-	if len(event.CheckSuite.PullRequests) > 0 {
-		onlyDrafts := true
-		for _, pr := range event.CheckSuite.PullRequests {
-			if !pr.GetDraft() {
-				onlyDrafts = false
-				break
-			}
-		}
-
-		if onlyDrafts && !ws.config.BuildDraftPRs {
-			return http.StatusOK, "skipping for draft PR"
-		}
-	}
-
-	cr, _, err := ghClient.Checks.CreateCheckRun(ctx,
+	cr, _, crerr := ghClient.Checks.CreateCheckRun(ctx,
 		*event.Org.Login,
 		*event.Repo.Name,
 		github.CreateCheckRunOptions{
@@ -114,9 +161,29 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 			HeadSHA: *event.CheckSuite.HeadSHA,
 		},
 	)
-	if err != nil {
+	if crerr != nil {
 		log.Printf("Unable to create check run, %v", err)
 		return http.StatusInternalServerError, ""
+	}
+
+	if err != nil {
+		msg := fmt.Sprintf("unable to parse workflow, %v", err)
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			*event.Org.Login,
+			*event.Repo.Name,
+			*cr.ID,
+			title,
+			msg,
+			"completed",
+			"failure",
+		)
+		return http.StatusOK, msg
+	}
+
+	if status, msg := ws.policy(ctx, ghClient, event, title, cr); status != 0 {
+		return status, msg
 	}
 
 	// We'll cancel all in-progress checks for this
