@@ -178,14 +178,30 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 		owner,
 		repo,
 		github.CreateCheckRunOptions{
-			Name:    "Argo Workflow",
+			Name:    checkRunName,
+			Status:  initialCheckRunStatus,
 			HeadSHA: headsha,
+			Output: &github.CheckRunOutput{
+				Title:   github.String("Workflow Setup"),
+				Summary: github.String("Creating workflow"),
+			},
 		},
 	)
 	if crerr != nil {
 		log.Printf("Unable to create check run, %v", err)
 		return fmt.Errorf("unable to create check run, %w", err)
 	}
+	ghUpdateCheckRun(
+		ctx,
+		ghClient,
+		owner,
+		repo,
+		*cr.ID,
+		"Workflow Setup",
+		"Creating workflow",
+		"in_progress",
+		"",
+	)
 
 	if err != nil {
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)

@@ -517,10 +517,26 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		cr.orgName,
 		cr.repoName,
 		github.CreateCheckRunOptions{
-			Name:    "Argo Workflow",
+			Name:    checkRunName,
 			HeadSHA: cr.headSHA,
-			Status:  github.String("queued"),
+			Status:  initialCheckRunStatus,
+			Output: &github.CheckRunOutput{
+				Title:   github.String("Workflow Setup"),
+				Summary: github.String("Creating workflow"),
+			},
 		},
+	)
+
+	ghUpdateCheckRun(
+		context.Background(),
+		ghClient,
+		cr.orgName,
+		cr.repoName,
+		*newCR.ID,
+		"Workflow Setup",
+		"Creating workflow",
+		"in_progress",
+		"",
 	)
 
 	newWf.Annotations[annAnnotationsPublished] = "false"
@@ -575,7 +591,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 	switch wf.Status.Phase {
 	case workflow.NodePending:
-		status = "queued"
+		status = *initialCheckRunStatus
 	case workflow.NodeRunning:
 		status = "in_progress"
 	case workflow.NodeFailed:

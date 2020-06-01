@@ -29,6 +29,11 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+var (
+	checkRunName          = "Argo Workflow"
+	initialCheckRunStatus = github.String("in_progress")
+)
+
 func detailsHash(org, repo, branch string) string {
 	h := sha1.New()
 	_, _ = h.Write([]byte(org))
@@ -162,14 +167,31 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		*event.Org.Login,
 		*event.Repo.Name,
 		github.CreateCheckRunOptions{
-			Name:    "Argo Workflow",
+			Name:    checkRunName,
 			HeadSHA: *event.CheckSuite.HeadSHA,
+			Status:  initialCheckRunStatus,
+			Output: &github.CheckRunOutput{
+				Title:   &title,
+				Summary: github.String("Creating workflow"),
+			},
 		},
 	)
 	if crerr != nil {
 		log.Printf("Unable to create check run, %v", err)
 		return http.StatusInternalServerError, ""
 	}
+
+	ghUpdateCheckRun(
+		ctx,
+		ghClient,
+		*event.Org.Login,
+		*event.Repo.Name,
+		*cr.ID,
+		title,
+		"Creating Workflow",
+		"in_progress",
+		"",
+	)
 
 	if err != nil {
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
@@ -264,22 +286,28 @@ func ghUpdateCheckRun(
 	conclusion string,
 ) {
 	log.Print(msg)
+	opts := github.UpdateCheckRunOptions{
+		Name:   checkRunName,
+		Status: &status,
+		Output: &github.CheckRunOutput{
+			Title:   &title,
+			Summary: &msg,
+		},
+	}
+
+	if conclusion != "" {
+		opts.Conclusion = &conclusion
+		opts.CompletedAt = &github.Timestamp{
+			Time: time.Now(),
+		}
+	}
 	_, _, err := ghClient.Checks.UpdateCheckRun(
 		ctx,
 		org,
 		repo,
 		crID,
-		github.UpdateCheckRunOptions{
-			Status:     &status,
-			Conclusion: &conclusion,
-			Output: &github.CheckRunOutput{
-				Title:   &title,
-				Summary: &msg,
-			},
-			CompletedAt: &github.Timestamp{
-				Time: time.Now(),
-			},
-		})
+		opts)
+
 	if err != nil {
 		log.Printf("Update of aborted check run failed, %v", err)
 	}
