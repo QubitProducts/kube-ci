@@ -44,8 +44,6 @@ func detailsHash(org, repo, branch string) string {
 // - only build PRs that are targeted at one of our valid base branches
 func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, event *github.CheckSuiteEvent, title string, cr *github.CheckRun) (int, string) {
 	if len(event.CheckSuite.PullRequests) > 0 {
-		baseMatched := false
-		onlyDrafts := true
 		for _, pr := range event.CheckSuite.PullRequests {
 			if *pr.Head.Repo.URL != *pr.Base.Repo.URL ||
 				*pr.Head.Repo.URL != *event.Repo.URL {
@@ -62,17 +60,37 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 				)
 				return http.StatusOK, "not building non local PR"
 			}
+		}
 
-			if ws.config.buildBranches != nil &&
-				!baseMatched &&
-				ws.config.buildBranches.MatchString(pr.GetBase().GetRef()) {
-				baseMatched = true
+		if ws.config.buildBranches != nil {
+			baseMatched := false
+			for _, pr := range event.CheckSuite.PullRequests {
+				if ws.config.buildBranches != nil && ws.config.buildBranches.MatchString(pr.GetBase().GetRef()) {
+					baseMatched = true
+					break
+				}
 			}
 
-			if !pr.GetDraft() {
-				onlyDrafts = false
-				break
+			ghUpdateCheckRun(
+				ctx,
+				ghClient,
+				*event.Org.Login,
+				*event.Repo.Name,
+				*cr.ID,
+				title,
+				fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+				"completed",
+				"skipped",
+			)
+
+			if !baseMatched {
+				return http.StatusOK, "skipping unmatched base branch"
 			}
+		}
+
+		onlyDrafts := true
+		for _, pr := range event.CheckSuite.PullRequests {
+			onlyDrafts = onlyDrafts && pr.GetDraft()
 		}
 
 		if onlyDrafts && !ws.config.BuildDraftPRs {
@@ -91,21 +109,6 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 			return http.StatusOK, "skipping draft PR"
 		}
 
-		if ws.config.buildBranches != nil && !baseMatched {
-			ghUpdateCheckRun(
-				ctx,
-				ghClient,
-				*event.Org.Login,
-				*event.Repo.Name,
-				*cr.ID,
-				title,
-				fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
-				"completed",
-				"skipped",
-			)
-			return http.StatusOK, "skipping unmatched base branch"
-		}
-
 		return 0, ""
 	}
 
@@ -118,10 +121,12 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 			*event.Repo.Name,
 			*cr.ID,
 			title,
-			fmt.Sprintf("checks are not automatically run fori base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
 			"completed",
 			"skipped",
 		)
+		log.Printf("not running %s %s, as it target unmatched base branches", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch())
+		return http.StatusOK, "skipping PR to unmatched base branch "
 	}
 
 	return 0, ""
