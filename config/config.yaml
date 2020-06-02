@@ -15,5 +15,5 @@ templates:
 cacheDefaults:
   storageClassName: standard-new
 
-buildBranches: "(master|production|staging)"
+buildBranches: ".+"
 buildDraftPRs: false
