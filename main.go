@@ -172,7 +172,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to read secrets file, %v", err)
 	}
-	secret = bytes.Trim(secret, " \r\n")
+	secret = bytes.TrimSpace(secret)
 
 	wfconfig := Config{
 		CIFilePath:    ".kube-ci/ci.yaml",

@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -117,12 +118,24 @@ func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *github.Cli
 }
 
 func (ws *workflowSyncer) slashUnknown(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
-	body := strings.TrimSpace(`
+	body := `
 Please issue a know command:
 - *run*: run the workflow onthe current branch (only valid for PRs)
 - *deploy* [environment (default: "staging")]: run the deploy workflow (not implemented yet)
 - *setup* TEMPLATENAME: add/replace the current workflow with the specified template
-`)
+`
+
+	keys := []string{}
+	for name := range ws.config.TemplateSet {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+	for _, name := range keys {
+		t := ws.config.TemplateSet[name]
+		body += fmt.Sprintf("  - *%s*:, %s\n", name, t.Description)
+	}
+	body = strings.TrimSpace(body)
+
 	return ws.slashComment(ctx, ghClient, event, body)
 }
 
