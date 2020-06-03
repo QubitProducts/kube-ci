@@ -35,6 +35,32 @@ If a repo contains the require kube-ci files, then a build will be triggered if:
 - If `/kube-ci run` command is issued by a member of an org that matches a configurable
   regexp.
 
+## Workflow Parameters.
+
+Some extra parameteres will be added to your workflow before it is run.
+
+- *repo*: git@github.com:yourorg/repo.git
+- *repoName*: repo
+- *orgName*: yourorg
+- *revision*: 01245789abc.....
+- *branch*: newpr5 (the head branch)
+
+Workflows run for pull-requests will get this additional parameters:
+
+- *pullRequestID*: "123"
+- *pullRequestBaseBranch*: prbranch (The base branch being PR'd to
+
+## Workflow volumes.
+
+You can create a volume to be used with a workflow by adding some annotations to your
+workflow.
+
+```
+annotations:
+  "kube-ci.qutics.com/cacheScope": "project"
+  "kube-ci.qutics.com/cacheSize": "20Gi"
+```
+
 ## TODO
 - better metrics
 - example deployment assets
