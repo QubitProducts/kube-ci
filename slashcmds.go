@@ -119,8 +119,9 @@ func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *github.Cli
 func (ws *workflowSyncer) slashUnknown(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
 	body := strings.TrimSpace(`
 Please issue a know command:
-- deploy [environment (default: "staging")]
-- setup TEMPLATENAME
+- *run*: run the workflow onthe current branch (only valid for PRs)
+- *deploy* [environment (default: "staging")]: run the deploy workflow (not implemented yet)
+- *setup* TEMPLATENAME: add/replace the current workflow with the specified template
 `)
 	return ws.slashComment(ctx, ghClient, event, body)
 }
