@@ -119,7 +119,7 @@ func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *github.Cli
 
 func (ws *workflowSyncer) slashUnknown(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
 	body := `
-Please issue a know command:
+known command:
 - *run*: run the workflow onthe current branch (only valid for PRs)
 - *deploy* [environment (default: "staging")]: run the deploy workflow (not implemented yet)
 - *setup* TEMPLATENAME: add/replace the current workflow with the specified template
@@ -132,7 +132,7 @@ Please issue a know command:
 	sort.Strings(keys)
 	for _, name := range keys {
 		t := ws.config.TemplateSet[name]
-		body += fmt.Sprintf("  - *%s*:, %s\n", name, t.Description)
+		body += fmt.Sprintf("  - *%s*: %s\n", name, t.Description)
 	}
 	body = strings.TrimSpace(body)
 
