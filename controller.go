@@ -93,7 +93,7 @@ func (ks *githubKeyStore) getClient(org string, installID int) (*github.Client, 
 		return nil, fmt.Errorf("refusing event from untrusted org %s", org)
 	}
 
-	itr, err := ghinstallation.New(ks.baseTransport, int(ks.appID), installID, ks.key)
+	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, int64(installID), ks.key)
 	if err != nil {
 		return nil, err
 	}
