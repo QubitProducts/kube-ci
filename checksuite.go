@@ -31,7 +31,7 @@ import (
 
 var (
 	checkRunName          = "Argo Workflow"
-	initialCheckRunStatus = github.String("in_progress")
+	initialCheckRunStatus = github.String("queued")
 )
 
 func detailsHash(org, repo, branch string) string {
@@ -189,7 +189,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		*cr.ID,
 		title,
 		"Creating Workflow",
-		"in_progress",
+		"queued",
 		"",
 	)
 

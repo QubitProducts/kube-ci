@@ -535,7 +535,7 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		*newCR.ID,
 		"Workflow Setup",
 		"Creating workflow",
-		"in_progress",
+		"queued",
 		"",
 	)
 
