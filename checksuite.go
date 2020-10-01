@@ -76,19 +76,19 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 				}
 			}
 
-			ghUpdateCheckRun(
-				ctx,
-				ghClient,
-				*event.Org.Login,
-				*event.Repo.Name,
-				*cr.ID,
-				title,
-				fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
-				"completed",
-				"failure",
-			)
-
 			if !baseMatched {
+				ghUpdateCheckRun(
+					ctx,
+					ghClient,
+					*event.Org.Login,
+					*event.Repo.Name,
+					*cr.ID,
+					title,
+					fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+					"completed",
+					"failure",
+				)
+
 				return http.StatusOK, "skipping unmatched base branch"
 			}
 		}
