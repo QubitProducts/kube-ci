@@ -12,6 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+var (
+	paramCacheVolumeClaimName = "cacheVolumeClaimName"
+)
+
 func (ws *workflowSyncer) ensurePVC(
 	wf *workflow.Workflow,
 	org string,
@@ -81,6 +85,15 @@ func (ws *workflowSyncer) ensurePVC(
 
 		return err
 	}
+	if err == nil {
+		parms := wf.Spec.Arguments.Parameters
+		wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
+			Name:  paramCacheVolumeClaimName,
+			Value: &name,
+		})
+
+		return nil
+	}
 	if !k8errors.IsNotFound(err) {
 		return err
 	}
@@ -111,6 +124,12 @@ func (ws *workflowSyncer) ensurePVC(
 	if err != nil {
 		return err
 	}
+
+	parms := wf.Spec.Arguments.Parameters
+	wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
+		Name:  paramCacheVolumeClaimName,
+		Value: &name,
+	})
 
 	return nil
 }

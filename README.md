@@ -44,6 +44,7 @@ Some extra parameteres will be added to your workflow before it is run.
 - *orgName*: yourorg
 - *revision*: 01245789abc.....
 - *branch*: newpr5 (the head branch)
+- *cacheVolumeClaimName*: the name of the pvc created (if requested)
 
 Workflows run for pull-requests will get this additional parameters:
 
