@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  annotations:
+    "kube-ci.qutics.com/cacheScope": "project"
+    "kube-ci.qutics.com/cacheSize": "20Gi"
+spec:
+  entrypoint: run
+  volumes:
+  - name: secrets
+    secret:
+      secretName: ci-secrets
+  - name: build-cache
+    persistentVolumeClaim:
+      claimName: "{{workflow.parameters.cacheVolumeClaimName}}"
+  templates:
+  - name: main
+    steps:
+    - - name: run
+        template: run
+        when: '{{workflow.parameters.branch}} != "gh-pages"'
+  - name: run
+    inputs:
+      artifacts:
+      - name: code
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+          sshPrivateKeySecret:
+            name:  ci-secrets
+            key: ssh-private-key
+    container:
+      image: "node:12"
+      args:
+      - "sh"
+      - "-c"
+      - |
+        set -x
+        set -e
+
+        cp /.ci-secrets/npmrc $HOME/.npmrc
+        npm i
+        PATH=$PATH:$(pwd)/node_modules/.bin
+
+        make test
+
+        ./node_modules/.bin/shelly-scripts bap release -b $CI_BRANCH
+      workingDir: /src
+      env:
+      - name: CI_BRANCH
+        value: "{{workflow.parameters.branch}}"
+      - name: GH_TOKEN
+        valueFrom:
+         secretKeyRef:
+           name: ci-secrets
+           key: GITHUB_TOKEN
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+         secretKeyRef:
+           name: ci-secrets
+           key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+         secretKeyRef:
+           name: ci-secrets
+           key: AWS_SECRET_ACCESS_KEY
+      volumeMounts:
+      - name: secrets
+        mountPath: /.ci-secrets
+      - name: build-cache
+        mountPath: /cache

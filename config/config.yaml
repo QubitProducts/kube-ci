@@ -11,6 +11,9 @@ templates:
     description: Uses baton to build an image, and to deploy
     ci: /config/templates/baton-ci.yml
     deploy: /config/templates/baton-deploy.yml
+  shellyui:
+    description: uses bap to deploy a UI
+    ci: /config/templates/shellyui-ci.yml
 
 cacheDefaults:
   storageClassName: standard-new
