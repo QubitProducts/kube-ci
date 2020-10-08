@@ -83,9 +83,6 @@ func (ws *workflowSyncer) ensurePVC(
 			}
 		}
 
-		return err
-	}
-	if err == nil {
 		parms := wf.Spec.Arguments.Parameters
 		wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 			Name:  paramCacheVolumeClaimName,
@@ -94,6 +91,7 @@ func (ws *workflowSyncer) ensurePVC(
 
 		return nil
 	}
+
 	if !k8errors.IsNotFound(err) {
 		return err
 	}
