@@ -8,9 +8,8 @@ nodeSelector:
 
 templates:
   baton:
-    description: Uses baton to build an image, and to deploy
-    ci: /config/templates/baton-ci.yml
-    deploy: /config/templates/baton-deploy.yml
+    description: Uses docker to build images from repos
+    ci: /config/docker-ci.yaml
 
 cacheDefaults:
   storageClassName: standard-new

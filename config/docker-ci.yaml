@@ -1,0 +1,71 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  annotations:
+    "kube-ci.qutics.com/cacheScope": "project"
+    "kube-ci.qutics.com/cacheSize": "20Gi"
+spec:
+  entrypoint: build
+  volumes:
+  - name: secrets
+    secret:
+      secretName: ci-secrets
+  - name: build-cache
+    persistentVolumeClaim:
+      claimName: "{{workflow.parameters.cacheVolumeClaimName}}"
+  templates:
+  - name: build
+    steps:
+    - - name: docker-build-tag
+        template: docker-build-node
+  - name: docker-build-node
+    inputs:
+      artifacts:
+      - name: code
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+          sshPrivateKeySecret:
+            name:  ci-secrets
+            key: ssh-private-key
+    container:
+      # We use this image because it does google login and waits for dockerd to be ready
+      image: docker:17.10-dind
+      workingDir: /src
+      args:
+      - sh
+      - -c
+      - |
+        set -x
+        set -e
+        if [ "master" = "${IMAGE_TAG}"; then
+          IMAGE_TAG="latest"
+        fi
+        DOCKER_TAG=your.docker.registry/cibuilds/${IMAGE_NAME}:${IMAGE_TAG}
+
+        # Wait for docker to start
+        until docker ps; do sleep 3; done;
+
+        docker build -t ${DOCKER_TAG} .
+        docker push ${DOCKER_TAG}
+      env:
+      - name: DOCKER_HOST
+        value: tcp://127.0.0.1:2375
+      - name: IMAGE_TAG
+        value: "{{workflow.parameters.branch}}"
+      - name: IMAGE_NAME
+        value: "{{workflow.parameters.repoName}}"
+      volumeMounts:
+      - name: secrets
+        mountPath: /.ci-secrets
+      - name: build-cache
+        mountPath: /cache
+    sidecars:
+    - name: dind
+      image: docker:17.10-dind
+      securityContext:
+        privileged: true
+      mirrorVolumeMounts: true
+      args:
+      - --data-root=/cache/docker
