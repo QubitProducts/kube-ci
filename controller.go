@@ -238,23 +238,23 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	parms = append(parms, []workflow.Parameter{
 		{
 			Name:  "repo",
-			Value: &gitURL,
+			Value: workflow.Int64OrStringPtr(gitURL),
 		},
 		{
 			Name:  "repoName",
-			Value: &repo,
+			Value: workflow.Int64OrStringPtr(repo),
 		},
 		{
 			Name:  "orgName",
-			Value: &owner,
+			Value: workflow.Int64OrStringPtr(owner),
 		},
 		{
 			Name:  "revision",
-			Value: &headSHA,
+			Value: workflow.Int64OrStringPtr(headSHA),
 		},
 		{
 			Name:  "branch",
-			Value: &headBranch,
+			Value: workflow.Int64OrStringPtr(headBranch),
 		},
 	}...)
 	if len(event.CheckSuite.PullRequests) != 0 {
@@ -263,11 +263,11 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 		parms = append(parms, []workflow.Parameter{
 			{
 				Name:  "pullRequestID",
-				Value: &prid,
+				Value: workflow.Int64OrStringPtr(prid),
 			},
 			{
 				Name:  "pullRequestBaseBranch",
-				Value: pr.Base.Ref,
+				Value: workflow.Int64OrStringPtr(*pr.Base.Ref),
 			},
 		}...)
 	}

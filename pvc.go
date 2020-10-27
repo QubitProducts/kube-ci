@@ -86,7 +86,7 @@ func (ws *workflowSyncer) ensurePVC(
 		parms := wf.Spec.Arguments.Parameters
 		wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 			Name:  paramCacheVolumeClaimName,
-			Value: &name,
+			Value: workflow.Int64OrStringPtr(name),
 		})
 
 		return nil
@@ -126,7 +126,7 @@ func (ws *workflowSyncer) ensurePVC(
 	parms := wf.Spec.Arguments.Parameters
 	wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 		Name:  paramCacheVolumeClaimName,
-		Value: &name,
+		Value: workflow.Int64OrStringPtr(name),
 	})
 
 	return nil
