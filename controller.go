@@ -897,8 +897,8 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		case "requested", "rerequested":
 			return ws.webhookCheckSuite(ctx, event)
 		default:
-			log.Printf("unknown cheksuite action %q ignored", *event.Action)
-			return http.StatusOK, "unknown cheksuite action ignored"
+			log.Printf("unknown checksuite action %q ignored", *event.Action)
+			return http.StatusOK, "unknown checksuite action ignored"
 		}
 	case *github.CheckRunEvent:
 		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != ws.appID {
@@ -918,7 +918,7 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		case "requested_action":
 			return ws.webhookCheckRunRequestAction(ctx, event)
 		default:
-			log.Printf("unknown chekrun action %q ignored", *event.Action)
+			log.Printf("unknown checkrun action %q ignored", *event.Action)
 			return http.StatusOK, "unknown checkrun action ignored"
 		}
 	case *github.DeploymentEvent:
