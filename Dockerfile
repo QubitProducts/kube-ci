@@ -1,8 +1,10 @@
 # build stage
 FROM golang:1.14 AS build-env
 ADD . /src
-RUN cd /src &&  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o goapp .
-RUN cd /src &&  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o oauth2_proxy  github.com/pusher/oauth2_proxy
+WORKDIR /src
+RUN GOOS=linux GOARCH=amd64 go test -v -race .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o goapp .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o oauth2_proxy  github.com/pusher/oauth2_proxy
 
 
 # final stage
