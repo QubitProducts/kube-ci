@@ -70,6 +70,20 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 	case *github.IssueCommentEvent:
 		return ws.webhookIssueComment(ctx, event)
 
+	case *github.DeleteEvent:
+		if event.GetRefType() != "branch" {
+			return http.StatusOK, fmt.Sprintf("ignore %s delete event", event.GetRefType())
+		}
+		return ws.webhookDeleteBranchEvent(ctx, event)
+
+	case *github.RepositoryEvent:
+		switch event.GetAction() {
+		case "archived", "deleted":
+			return ws.webhookRepositoryDeleteEvent(ctx, event)
+		default:
+			return http.StatusOK, fmt.Sprintf("ignore repo %s event", event.GetAction())
+		}
+
 	default:
 		return http.StatusOK, fmt.Sprintf("unknown event type %T", event)
 	}
