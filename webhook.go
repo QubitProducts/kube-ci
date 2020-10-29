@@ -20,7 +20,16 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		return http.StatusBadRequest, "could not parse request"
 	}
 
-	log.Printf("webhook event of type %s", eventType)
+	type repoGetter interface {
+		GetRepo() *github.Repository
+	}
+
+	if rev, ok := rawEvent.(repoGetter); ok {
+		r := rev.GetRepo()
+		log.Printf("webhook event of type %s for %s/%s", eventType, r.GetOwner().GetLogin(), r.GetName())
+	} else {
+		log.Printf("webhook event of type %s", eventType)
+	}
 
 	ctx := r.Context()
 
