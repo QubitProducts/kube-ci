@@ -8,6 +8,14 @@ import (
 	"github.com/google/go-github/v32/github"
 )
 
+func (ws *workflowSyncer) loggingWebhook(w http.ResponseWriter, r *http.Request) (int, string) {
+	status, msg := ws.webhook(w, r)
+	if status != 0 && status != http.StatusOK {
+		log.Printf("error returned from webhook, %d: %s", status, msg)
+	}
+	return status, msg
+}
+
 func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
 	payload, err := github.ValidatePayload(r, ws.ghSecret)
 	if err != nil {

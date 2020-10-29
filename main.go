@@ -240,7 +240,7 @@ func main() {
 	mux.HandleFunc("/webhooks/github",
 		promhttp.InstrumentHandlerDuration(
 			duration,
-			httpErrorFunc(wfSyncer.webhook)))
+			httpErrorFunc(wfSyncer.loggingWebhook)))
 
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/status", sh)
