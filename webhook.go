@@ -47,7 +47,8 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		if event.GetCheckSuite().GetApp().GetID() != ws.appID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
-		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
+		// TODO: HeadBranch is not set for all events, need to understand why
+		// log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "requested", "rerequested":
 			return ws.webhookCheckSuite(ctx, event)
@@ -62,7 +63,8 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != ws.appID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
-		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
+		// TODO: HeadBranch is not set for all events, need to understand why
+		//log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "rerequested":
 			ev := &github.CheckSuiteEvent{
