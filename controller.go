@@ -550,7 +550,7 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	var err error
 
-	log.Printf("got workflow: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
+	log.Printf("got workflow phase: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
 
 	if v, ok := wf.Annotations[annAnnotationsPublished]; ok && v == "true" {
 		switch wf.Status.Phase {
@@ -561,7 +561,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 				return nil
 			}
 		default:
-			log.Printf("ignoring %s/%s, already completed", wf.Namespace, wf.Name)
+			// The workflow is not yet running, ignore it
 			return nil
 		}
 	}

@@ -43,6 +43,8 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		switch *event.Action {
 		case "requested", "rerequested":
 			return ws.webhookCheckSuite(ctx, event)
+		case "completed":
+			return http.StatusOK, "OK"
 		default:
 			log.Printf("unknown checksuite action %q ignored", *event.Action)
 			return http.StatusOK, "unknown checksuite action ignored"
@@ -65,6 +67,8 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 			return ws.webhookCheckSuite(ctx, ev)
 		case "requested_action":
 			return ws.webhookCheckRunRequestAction(ctx, event)
+		case "completed":
+			return http.StatusOK, "OK"
 		default:
 			log.Printf("unknown checkrun action %q ignored", *event.Action)
 			return http.StatusOK, "unknown checkrun action ignored"
