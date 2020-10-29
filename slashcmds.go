@@ -48,12 +48,14 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 
 	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID))
 	if err != nil {
+		log.Printf("error creating github client, %v", err)
 		return http.StatusBadRequest, "failed to create github client"
 	}
 
 	user := event.Comment.GetUser()
 	ok, _, err := ghClient.Organizations.IsMember(ctx, *org, user.GetLogin())
 	if err != nil {
+		log.Printf("error querying github membership, %v", err)
 		return http.StatusBadRequest, "failed to check org membership"
 	}
 	if !ok {
