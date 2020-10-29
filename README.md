@@ -11,7 +11,7 @@ application:
 If a given commit has a workflow file, location in ```.kube-ci/ci.yaml```,
 kube-ci:
 - Creates a Check Run when a Check Suite is requested. (see Build Policy below)
-- Creates the a workflow based on the provided file. 
+- Creates the a workflow based on the provided file.
 - Reports parsing errors of the user supplied workflow back the Github UI.
 - Feeds back the status of Workflow pods to the Github UI
 - Links to the argo-ui for the created workflow
