@@ -14,6 +14,7 @@ exec /app/oauth2_proxy \
   -upstream=http://localhost:8080/webhooks/github \
   -upstream=http://argo-server.argo:2746 \
   -pass-host-header \
+  -pass-basic-auth=false \
   -skip-provider-button \
   -redirect-url=https://kube-ci-staging.qutics.com/oauth2/callback \
   "$*"
