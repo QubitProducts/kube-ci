@@ -14,6 +14,9 @@ import (
 
 var (
 	paramCacheVolumeClaimName = "cacheVolumeClaimName"
+	scopeBranch               = "branch"
+	scopeProject              = "project"
+	scopeNone                 = "none"
 )
 
 func (ws *workflowSyncer) ensurePVC(
@@ -26,10 +29,10 @@ func (ws *workflowSyncer) ensurePVC(
 	if wfScope, ok := wf.Annotations[annCacheVolumeScope]; ok {
 		scope = wfScope
 	}
-	if scope == "none" || scope == "" {
+	if scope == scopeNone || scope == "" {
 		return nil
 	}
-	if scope != "branch" && scope != "project" {
+	if scope != scopeBranch && scope != scopeProject {
 		return errors.New("scope should be either none, branch or project")
 	}
 
@@ -53,7 +56,7 @@ func (ws *workflowSyncer) ensurePVC(
 	}
 
 	name := labelSafe("ci", scope, org, repo)
-	if scope == "branch" {
+	if scope == scopeBranch {
 		name = labelSafe("ci", scope, org, repo, branch)
 	}
 
@@ -66,9 +69,10 @@ func (ws *workflowSyncer) ensurePVC(
 			labelManagedBy: "kube-ci",
 			labelOrg:       labelSafe(org),
 			labelRepo:      labelSafe(repo),
+			labelScope:     labelSafe(scope),
 		})
 
-	if scope == "branch" {
+	if scope == scopeBranch {
 		ls[labelBranch] = labelSafe(branch)
 	}
 

@@ -66,6 +66,7 @@ var (
 	labelRepo        = "repo"
 	labelBranch      = "branch"
 	labelDetailsHash = "detailsHash"
+	labelScope       = "scope"
 )
 
 type githubKeyStore struct {
