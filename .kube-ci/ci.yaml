@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  annotations:
+    "kube-ci.qutics.com/cacheScope": "project"
+    "kube-ci.qutics.com/cacheSize": "20Gi"
+spec:
+  entrypoint: test
+  volumes:
+  - name: build-cache
+    persistentVolumeClaim:
+      claimName: "{{workflow.parameters.cacheVolumeClaimName}}"
+  templates:
+  - name: test
+    steps:
+    - - name: test
+        template: test-node
+  - name: test-node
+    inputs:
+      artifacts:
+      - name: code
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+    container:
+      image: "golang:1.14"
+      args:
+      - sh
+      - -c
+      - |
+        gofmt -l -e .
+        go vet .
+        go run honnef.co/go/tools/cmd/staticcheck .
+        go test -v
+      workingDir: /src
+      env:
+      - name: GOPROXY
+        value: http://gomod-athens:8080
+      volumeMounts:
+      - name: build-cache
+        mountPath: /cache

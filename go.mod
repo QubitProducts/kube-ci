@@ -20,6 +20,7 @@ require (
 	github.com/pusher/oauth2_proxy v1.1.2-0.20200308153134-e3fb25efe6c5
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a // indirect
 	gopkg.in/yaml.v2 v2.2.8
+	honnef.co/go/tools v0.0.1-2020.1.6 // indirect
 	k8s.io/api v0.17.8
 	k8s.io/apimachinery v0.17.8
 	k8s.io/client-go v0.17.8
