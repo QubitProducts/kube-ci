@@ -47,6 +47,7 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		if event.GetCheckSuite().GetApp().GetID() != ws.appID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
+		log.Printf("%#v", *event)
 		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "requested", "rerequested":
@@ -62,6 +63,7 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != ws.appID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
+		log.Printf("%#v", *event)
 		log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "rerequested":
