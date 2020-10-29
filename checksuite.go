@@ -63,6 +63,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 					"completed",
 					"failure",
 				)
+				log.Printf("not running %s %s, as it for a PR from a non-local branch", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch())
 				return http.StatusOK, "not building non local PR"
 			}
 		}
@@ -70,7 +71,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 		if ws.config.buildBranches != nil {
 			baseMatched := false
 			for _, pr := range event.CheckSuite.PullRequests {
-				if ws.config.buildBranches != nil && ws.config.buildBranches.MatchString(pr.GetBase().GetRef()) {
+				if ws.config.buildBranches.MatchString(pr.GetBase().GetRef()) {
 					baseMatched = true
 					break
 				}
@@ -88,6 +89,8 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 					"completed",
 					"failure",
 				)
+
+				log.Printf("not running %s %s, base branch did not match %s", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch(), ws.config.buildBranches.String())
 
 				return http.StatusOK, "skipping unmatched base branch"
 			}
