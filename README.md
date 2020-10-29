@@ -66,14 +66,6 @@ annotations:
 - better metrics
 - example deployment assets
 
-## Maybe
-- Help with createing per repo/branch temporary storage for cacheing.
-- Allow a default workflow or steps
-  repository content.
-- Create an initial issue on newly created projects to give instructions.
-- Allow CEL (or maybe prolog), configuration of workflows based on
-  on how to import a workflow.
-
 # Deploying
 
 - Pick a URL for the webhook.The Kube-CI github WebHook needs to be reachable
@@ -89,6 +81,20 @@ annotations:
     ```https://github.com/organizations/YOURORG/settings/installations/12345```
   - It need Read permission to repos and repo contents, and read/write to
     Checks.
+  - Enable the following events (TODO: not all of these are used, needs review):
+    - Check suite
+    - Check run
+    - Create
+    - Delete
+    - Commit Comment
+    - Deployment
+    - Deployment Status
+    - Issue Comment
+    - Pull Request
+    - Pull Request Review
+    - Push
+    - Release
+    - Repository
 
 - Deploy kube-ci
   - You should already have argo deployed. Some things currently assume a
