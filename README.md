@@ -40,6 +40,8 @@ If a repo contains the require kube-ci files, then a build will be triggered if:
 Some extra parameteres will be added to your workflow before it is run.
 
 - *repo*: git@github.com:yourorg/repo.git
+- *repo_git_url*: git//github.com/yourorg/repo.git
+- *repo_https_url*: http://github.com/yourorg/repo.git
 - *repoName*: repo
 - *orgName*: yourorg
 - *revision*: 01245789abc.....
