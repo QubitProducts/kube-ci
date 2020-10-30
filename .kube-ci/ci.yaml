@@ -21,11 +21,8 @@ spec:
       - name: code
         path: /src
         git:
-          repo: "{{workflow.parameters.repo}}"
+          repo: "{{workflow.parameters.repo_git_url}}"
           revision: "{{workflow.parameters.revision}}"
-          sshPrivateKeySecret:
-            name:  ci-secrets
-            key: ssh-private-key
     container:
       image: "golang:1.14"
       args:
