@@ -197,7 +197,7 @@ func (ws *workflowSyncer) deletePVC(
 		LabelSelector: ls.AsSelector().String(),
 	}
 
-	pvcs, err := ws.kubeclient.CoreV1().PersistentVolumeClaims("").List(opt)
+	pvcs, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(ws.config.Namespace).List(opt)
 	if k8errors.IsNotFound(err) {
 		return nil
 	}
