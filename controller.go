@@ -186,19 +186,24 @@ func wfName(prefix, owner, repo, branch string) string {
 }
 
 // updateWorkflow, lots of these settings shoud come in from some config.
-func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.CheckSuiteEvent, cr *github.CheckRun) {
-	owner := *event.Repo.Owner.Login
-	repo := *event.Repo.Name
-	headBranch := *event.CheckSuite.HeadBranch
-	headSHA := *event.CheckSuite.HeadSHA
-	gitURL := event.Repo.GetGitURL()
-	sshURL := event.Repo.GetSSHURL()
-	httpsURL := event.Repo.GetCloneURL()
-	instID := *event.Installation.ID
+func (ws *workflowSyncer) updateWorkflow(
+	wf *workflow.Workflow,
+	instID int64,
+	repo *github.Repository,
+	prs []*github.PullRequest,
+	headSHA string,
+	headBranch string,
+	cr *github.CheckRun) {
+
+	owner := *repo.Owner.Login
+	repoName := *repo.Name
+	gitURL := repo.GetGitURL()
+	sshURL := repo.GetSSHURL()
+	httpsURL := repo.GetCloneURL()
 
 	wfType := "ci"
 	wf.GenerateName = ""
-	wf.Name = wfName(wfType, owner, repo, headBranch)
+	wf.Name = wfName(wfType, owner, repoName, headBranch)
 
 	if ws.config.Namespace != "" {
 		wf.Namespace = ws.config.Namespace
@@ -263,8 +268,8 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 			Value: workflow.Int64OrStringPtr(headBranch),
 		},
 	}...)
-	if len(event.CheckSuite.PullRequests) != 0 {
-		pr := event.CheckSuite.PullRequests[0]
+	if len(prs) != 0 {
+		pr := prs[0]
 		prid := strconv.Itoa(pr.GetNumber())
 		parms = append(parms, []workflow.Parameter{
 			{
@@ -286,7 +291,7 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	wf.Labels[labelManagedBy] = "kube-ci"
 	wf.Labels[labelWFType] = wfType
 	wf.Labels[labelOrg] = labelSafe(owner)
-	wf.Labels[labelRepo] = labelSafe(repo)
+	wf.Labels[labelRepo] = labelSafe(repoName)
 	wf.Labels[labelBranch] = labelSafe(headBranch)
 
 	if wf.Annotations == nil {
@@ -295,7 +300,7 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 
 	wf.Annotations[annCommit] = headSHA
 	wf.Annotations[annBranch] = headBranch
-	wf.Annotations[annRepo] = repo
+	wf.Annotations[annRepo] = repoName
 	wf.Annotations[annOrg] = owner
 
 	wf.Annotations[annInstID] = strconv.Itoa(int(instID))
@@ -535,11 +540,17 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		return nil, fmt.Errorf("failed creating new check run, %w", err)
 	}
 
+	repo := &github.Repository{
+		Owner: &github.User{
+			Login: github.String(cr.orgName),
+		},
+		Name: github.String(cr.repoName),
+	}
+
 	ghUpdateCheckRun(
 		context.Background(),
 		ghClient,
-		cr.orgName,
-		cr.repoName,
+		repo,
 		*newCR.ID,
 		"Workflow Setup",
 		"Creating workflow",
@@ -841,16 +852,15 @@ func (ws *workflowSyncer) getFile(
 func (ws *workflowSyncer) getWorkflow(
 	ctx context.Context,
 	ghClient *github.Client,
-	owner string,
-	name string,
+	repo *github.Repository,
 	sha string,
 	filename string) (*workflow.Workflow, error) {
 
 	file, err := ws.getFile(
 		ctx,
 		ghClient,
-		owner,
-		name,
+		repo.GetOwner().GetLogin(),
+		repo.GetName(),
 		sha,
 		filename)
 	if err != nil {

@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -184,128 +183,20 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 	}
 
 	headsha := pr.GetHead().GetSHA()
-	wf, err := ws.getWorkflow(
-		ctx,
-		ghClient,
-		owner,
-		repo,
-		headsha,
-		ws.config.CIFilePath,
-	)
-
-	if os.IsNotExist(err) {
-		log.Printf("no %s in %s/%s (%s)",
-			ws.config.CIFilePath,
-			owner,
-			repo,
-			headsha,
-		)
-		body := fmt.Sprintf("kube-ci config ```%s``` not found in this branch", ws.config.CIFilePath)
-		return ws.slashComment(ctx, ghClient, event, body)
-	}
-
-	title := "Workflow Setup"
-	cr, _, crerr := ghClient.Checks.CreateCheckRun(ctx,
-		owner,
-		repo,
-		github.CreateCheckRunOptions{
-			Name:    checkRunName,
-			Status:  initialCheckRunStatus,
-			HeadSHA: headsha,
-			Output: &github.CheckRunOutput{
-				Title:   github.String("Workflow Setup"),
-				Summary: github.String("Creating workflow"),
-			},
-		},
-	)
-	if crerr != nil {
-		log.Printf("Unable to create check run, %v", err)
-		return fmt.Errorf("unable to create check run, %w", err)
-	}
-	ghUpdateCheckRun(
-		ctx,
-		ghClient,
-		owner,
-		repo,
-		*cr.ID,
-		"Workflow Setup",
-		"Creating workflow",
-		"in_progress",
-		"",
-	)
-
-	if err != nil {
-		msg := fmt.Sprintf("unable to parse workflow, %v", err)
-		ghUpdateCheckRun(
-			ctx,
-			ghClient,
-			owner,
-			repo,
-			*cr.ID,
-			title,
-			msg,
-			"completed",
-			"failure",
-		)
-		return ws.slashComment(ctx, ghClient, event, msg)
-	}
-
 	headref := pr.GetHead().GetRef()
-	ws.cancelRunningWorkflows(
-		labelSafe(*event.Repo.Owner.Login),
-		labelSafe(*event.Repo.Name),
-		labelSafe(headref),
-	)
-
-	wf = wf.DeepCopy()
-	ws.updateWorkflow(wf, &github.CheckSuiteEvent{
-		Repo:         event.GetRepo(),
-		Installation: event.GetInstallation(),
-		CheckSuite: &github.CheckSuite{
-			PullRequests: []*github.PullRequest{pr},
-			HeadBranch:   pr.Head.Ref,
-			HeadSHA:      pr.Head.SHA,
-		},
-	}, cr)
-
-	err = ws.ensurePVC(
-		wf,
-		owner,
-		repo,
+	status, message := ws.runWorkflow(
+		ctx,
+		ghClient,
+		event.Installation.GetID(),
+		event.Repo,
+		headsha,
 		headref,
-		ws.config.CacheDefaults,
+		[]*github.PullRequest{pr},
 	)
-	if err != nil {
-		ghUpdateCheckRun(
-			ctx,
-			ghClient,
-			owner,
-			repo,
-			*cr.ID,
-			title,
-			fmt.Sprintf("creation of cache volume failed, %v", err),
-			"completed",
-			"failure",
-		)
+
+	if status != http.StatusOK && status != 0 {
+		return errors.New(message)
 	}
-
-	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
-	if err != nil {
-		ghUpdateCheckRun(
-			ctx,
-			ghClient,
-			owner,
-			repo,
-			*cr.ID,
-			title,
-			fmt.Sprintf("argo workflow creation failed, %v", err),
-			"completed",
-			"failure",
-		)
-
-		return fmt.Errorf("argo workflow creation failed, %w", err)
-	}
-
 	return nil
 }
 

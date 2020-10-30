@@ -59,6 +59,15 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 			return http.StatusOK, "unknown checksuite action ignored"
 		}
 
+	//case *github.PushEvent:
+	case *github.CreateEvent:
+		switch event.GetRefType() {
+		case "tag":
+			return ws.webhookCreateTag(ctx, event)
+		default:
+			return http.StatusOK, "OK"
+		}
+
 	case *github.CheckRunEvent:
 		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != ws.appID {
 			return http.StatusOK, "ignoring, wrong appID"

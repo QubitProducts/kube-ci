@@ -33,30 +33,38 @@ var (
 // policy enforces the main build policy:
 // - only build Draft PRs if the configured to do so.
 // - only build PRs that are targeted at one of our valid base branches
-func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, event *github.CheckSuiteEvent, title string, cr *github.CheckRun) (int, string) {
-	if len(event.CheckSuite.PullRequests) > 0 {
-		for _, pr := range event.CheckSuite.PullRequests {
+func (ws *workflowSyncer) policy(
+	ctx context.Context,
+	ghClient *github.Client,
+	repo *github.Repository,
+	headBranch string,
+	title string,
+	prs []*github.PullRequest,
+	cr *github.CheckRun,
+) (int, string) {
+
+	if len(prs) > 0 {
+		for _, pr := range prs {
 			if *pr.Head.Repo.URL != *pr.Base.Repo.URL ||
-				*pr.Head.Repo.URL != *event.Repo.URL {
+				*pr.Head.Repo.URL != *repo.URL {
 				ghUpdateCheckRun(
 					ctx,
 					ghClient,
-					*event.Org.Login,
-					*event.Repo.Name,
+					repo,
 					*cr.ID,
 					title,
 					"refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
 					"completed",
 					"failure",
 				)
-				log.Printf("not running %s %s, as it for a PR from a non-local branch", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch())
+				log.Printf("not running %s %s, as it for a PR from a non-local branch", repo.GetFullName(), headBranch)
 				return http.StatusOK, "not building non local PR"
 			}
 		}
 
 		if ws.config.buildBranches != nil {
 			baseMatched := false
-			for _, pr := range event.CheckSuite.PullRequests {
+			for _, pr := range prs {
 				if ws.config.buildBranches.MatchString(pr.GetBase().GetRef()) {
 					baseMatched = true
 					break
@@ -67,8 +75,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 				ghUpdateCheckRun(
 					ctx,
 					ghClient,
-					*event.Org.Login,
-					*event.Repo.Name,
+					repo,
 					*cr.ID,
 					title,
 					fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
@@ -76,14 +83,14 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 					"failure",
 				)
 
-				log.Printf("not running %s %s, base branch did not match %s", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch(), ws.config.buildBranches.String())
+				log.Printf("not running %s %s, base branch did not match %s", repo.GetFullName(), headBranch, ws.config.buildBranches.String())
 
 				return http.StatusOK, "skipping unmatched base branch"
 			}
 		}
 
 		onlyDrafts := true
-		for _, pr := range event.CheckSuite.PullRequests {
+		for _, pr := range prs {
 			onlyDrafts = onlyDrafts && pr.GetDraft()
 		}
 
@@ -91,15 +98,14 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 			ghUpdateCheckRun(
 				ctx,
 				ghClient,
-				*event.Org.Login,
-				*event.Repo.Name,
+				repo,
 				*cr.ID,
 				title,
 				"auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
 				"completed",
 				"failure",
 			)
-			log.Printf("not running %s %s, as it is only used in draft PRs", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch())
+			log.Printf("not running %s %s, as it is only used in draft PRs", repo.GetFullName(), headBranch)
 			return http.StatusOK, "skipping draft PR"
 		}
 
@@ -107,162 +113,37 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 	}
 
 	// this commit was not for a PR, so we confirm we should build for the head branch it was targettted at
-	if ws.config.buildBranches != nil && !ws.config.buildBranches.MatchString(event.CheckSuite.GetHeadBranch()) {
+	if ws.config.buildBranches != nil && !ws.config.buildBranches.MatchString(headBranch) {
 		ghUpdateCheckRun(
 			ctx,
 			ghClient,
-			*event.Org.Login,
-			*event.Repo.Name,
+			repo,
 			*cr.ID,
 			title,
 			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
 			"completed",
 			"failure",
 		)
-		log.Printf("not running %s %s, as it target unmatched base branches", event.Repo.GetFullName(), event.CheckSuite.GetHeadBranch())
+		log.Printf("not running %s %s, as it target unmatched base branches", repo.GetFullName(), headBranch)
 		return http.StatusOK, "skipping PR to unmatched base branch "
 	}
 
 	return 0, ""
 }
 
-func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
-	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID))
-	if err != nil {
-		return http.StatusBadRequest, err.Error()
-	}
-
-	wf, err := ws.getWorkflow(
-		ctx,
-		ghClient,
-		*event.Org.Login,
-		*event.Repo.Name,
-		*event.CheckSuite.HeadSHA,
-		ws.config.CIFilePath,
-	)
-
-	if os.IsNotExist(err) {
-		log.Printf("no %s in %s/%s (%s)",
-			ws.config.CIFilePath,
-			*event.Org.Login,
-			*event.Repo.Name,
-			*event.CheckSuite.HeadSHA,
-		)
-		return http.StatusOK, ""
-	}
-
-	title := "Workflow Setup"
-	cr, _, crerr := ghClient.Checks.CreateCheckRun(ctx,
-		*event.Org.Login,
-		*event.Repo.Name,
-		github.CreateCheckRunOptions{
-			Name:    checkRunName,
-			HeadSHA: *event.CheckSuite.HeadSHA,
-			Status:  initialCheckRunStatus,
-			Output: &github.CheckRunOutput{
-				Title:   &title,
-				Summary: github.String("Creating workflow"),
-			},
-		},
-	)
-	if crerr != nil {
-		log.Printf("Unable to create check run, %v", err)
-		return http.StatusInternalServerError, ""
-	}
-
-	ghUpdateCheckRun(
-		ctx,
-		ghClient,
-		*event.Org.Login,
-		*event.Repo.Name,
-		*cr.ID,
-		title,
-		"Creating Workflow",
-		"queued",
-		"",
-	)
-
-	if err != nil {
-		msg := fmt.Sprintf("unable to parse workflow, %v", err)
-		ghUpdateCheckRun(
-			ctx,
-			ghClient,
-			*event.Org.Login,
-			*event.Repo.Name,
-			*cr.ID,
-			title,
-			msg,
-			"completed",
-			"failure",
-		)
-		return http.StatusOK, msg
-	}
-
-	if status, msg := ws.policy(ctx, ghClient, event, title, cr); status != 0 {
-		return status, msg
-	}
-
-	ws.cancelRunningWorkflows(
-		labelSafe(*event.Repo.Owner.Login),
-		labelSafe(*event.Repo.Name),
-		labelSafe(*event.CheckSuite.HeadBranch),
-	)
-
-	wf = wf.DeepCopy()
-	ws.updateWorkflow(wf, event, cr)
-
-	err = ws.ensurePVC(
-		wf,
-		*event.Org.Login,
-		*event.Repo.Name,
-		*event.CheckSuite.HeadBranch,
-		ws.config.CacheDefaults,
-	)
-	if err != nil {
-		ghUpdateCheckRun(
-			ctx,
-			ghClient,
-			*event.Org.Login,
-			*event.Repo.Name,
-			*cr.ID,
-			title,
-			fmt.Sprintf("creation of cache volume failed, %v", err),
-			"completed",
-			"failure",
-		)
-	}
-
-	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
-	if err != nil {
-		ghUpdateCheckRun(
-			ctx,
-			ghClient,
-			*event.Org.Login,
-			*event.Repo.Name,
-			*cr.ID,
-			title,
-			fmt.Sprintf("argo workflow creation failed, %v", err),
-			"completed",
-			"failure",
-		)
-
-		return http.StatusInternalServerError, ""
-	}
-
-	return http.StatusOK, ""
-}
-
 func ghUpdateCheckRun(
 	ctx context.Context,
 	ghClient *github.Client,
-	org string,
-	repo string,
+	repo *github.Repository,
 	crID int64,
 	title string,
 	msg string,
 	status string,
 	conclusion string,
 ) {
+	org := repo.GetOwner().GetLogin()
+	repoName := repo.GetName()
+
 	log.Print(msg)
 	opts := github.UpdateCheckRunOptions{
 		Name:   checkRunName,
@@ -282,13 +163,164 @@ func ghUpdateCheckRun(
 	_, _, err := ghClient.Checks.UpdateCheckRun(
 		ctx,
 		org,
-		repo,
+		repoName,
 		crID,
 		opts)
 
 	if err != nil {
 		log.Printf("Update of aborted check run failed, %v", err)
 	}
+}
+
+type orgClient struct {
+}
+
+func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
+	return 0, ""
+}
+
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Client, instID int64, repo *github.Repository, headsha, headbranch string, prs []*github.PullRequest) (int, string) {
+	org := repo.GetOwner().GetLogin()
+	name := repo.GetName()
+	wf, err := ws.getWorkflow(
+		ctx,
+		ghClient,
+		repo,
+		headsha,
+		ws.config.CIFilePath,
+	)
+
+	if os.IsNotExist(err) {
+		log.Printf("no %s in %s/%s (%s)",
+			ws.config.CIFilePath,
+			org,
+			name,
+			headsha,
+		)
+		return http.StatusOK, ""
+	}
+
+	title := "Workflow Setup"
+	cr, _, crerr := ghClient.Checks.CreateCheckRun(ctx,
+		org,
+		name,
+		github.CreateCheckRunOptions{
+			Name:    checkRunName,
+			HeadSHA: headsha,
+			Status:  initialCheckRunStatus,
+			Output: &github.CheckRunOutput{
+				Title:   &title,
+				Summary: github.String("Creating workflow"),
+			},
+		},
+	)
+	if crerr != nil {
+		log.Printf("Unable to create check run, %v", err)
+		return http.StatusInternalServerError, ""
+	}
+
+	ghUpdateCheckRun(
+		ctx,
+		ghClient,
+		repo,
+		*cr.ID,
+		title,
+		"Creating Workflow",
+		"queued",
+		"",
+	)
+
+	if err != nil {
+		msg := fmt.Sprintf("unable to parse workflow, %v", err)
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			repo,
+			*cr.ID,
+			title,
+			msg,
+			"completed",
+			"failure",
+		)
+		return http.StatusOK, msg
+	}
+
+	if status, msg := ws.policy(ctx, ghClient, repo, headbranch, title, prs, cr); status != 0 {
+		return status, msg
+	}
+
+	ws.cancelRunningWorkflows(
+		labelSafe(org),
+		labelSafe(name),
+		labelSafe(headbranch),
+	)
+
+	wf = wf.DeepCopy()
+	ws.updateWorkflow(
+		wf,
+		instID,
+		repo,
+		prs,
+		headsha,
+		headbranch,
+		cr,
+	)
+
+	err = ws.ensurePVC(
+		wf,
+		org,
+		name,
+		headbranch,
+		ws.config.CacheDefaults,
+	)
+	if err != nil {
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			repo,
+			*cr.ID,
+			title,
+			fmt.Sprintf("creation of cache volume failed, %v", err),
+			"completed",
+			"failure",
+		)
+	}
+
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
+	if err != nil {
+		ghUpdateCheckRun(
+			ctx,
+			ghClient,
+			repo,
+			*cr.ID,
+			title,
+			fmt.Sprintf("argo workflow creation failed, %v", err),
+			"completed",
+			"failure",
+		)
+
+		return http.StatusInternalServerError, ""
+	}
+
+	return http.StatusOK, ""
+}
+
+func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
+	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID))
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+	return ws.runWorkflow(
+		ctx,
+		ghClient,
+		event.Installation.GetID(),
+		event.Repo,
+		*event.CheckSuite.HeadSHA,
+		*event.CheckSuite.HeadBranch,
+		event.CheckSuite.PullRequests,
+	)
+
+	return http.StatusOK, ""
 }
 
 func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
