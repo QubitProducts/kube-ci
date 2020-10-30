@@ -42,7 +42,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -136,7 +135,6 @@ type Config struct {
 	BuildBranches string            `yaml:"buildBranches"`
 
 	buildBranches *regexp.Regexp
-	secret        []byte
 }
 
 type workflowSyncer struct {
@@ -149,10 +147,8 @@ type workflowSyncer struct {
 	kubeclient kubernetes.Interface
 	client     clientset.Interface
 	lister     listers.WorkflowLister
-	informer   cache.SharedIndexInformer
 	synced     cache.InformerSynced
 	workqueue  workqueue.RateLimitingInterface
-	recorder   record.EventRecorder
 
 	argoUIBase string
 }
@@ -175,7 +171,7 @@ func labelSafe(strs ...string) string {
 	maxLen := 50
 	if len(str) > maxLen {
 		strOver := maxLen - len(str)
-		str = str[strOver*-1 : len(str)]
+		str = str[strOver*-1:]
 	}
 
 	return sanitizeToDNS.ReplaceAllString(str, "")
@@ -535,6 +531,9 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 			},
 		},
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating new check run, %w", err)
+	}
 
 	ghUpdateCheckRun(
 		context.Background(),
@@ -738,6 +737,9 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 			Actions: actions,
 		},
 	)
+	if err != nil {
+		log.Printf("error, failed updating check run status, %v", err)
+	}
 
 	batchSize := 50 // github API allows 50 at a time
 	for i := 0; i < len(allAnns); i += batchSize {
@@ -789,8 +791,6 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 	if err != nil {
 		log.Printf("workflow %s/%s update for annotations update failed, %v", upwf.Namespace, upwf.Name, err)
 	}
-
-	return
 }
 
 func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {

@@ -148,7 +148,12 @@ func main() {
 			if err != nil {
 				log.Fatalf("failed to read id file, %v", err)
 			}
-			id, err := strconv.Atoi(strings.TrimSpace(string(line)))
+			idStr := strings.TrimSpace(string(line))
+			id, err := strconv.Atoi(idStr)
+			if err != nil {
+				log.Fatalf("failed to parse org id %q as integer, %v", idStr, err)
+			}
+
 			ids = append(ids, id)
 		}
 	}

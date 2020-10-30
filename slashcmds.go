@@ -163,10 +163,6 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
 	owner := event.Repo.GetOwner().GetLogin()
 	repo := event.Repo.GetName()
-	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID))
-	if err != nil {
-		return err
-	}
 
 	prlinks := event.GetIssue().GetPullRequestLinks()
 	if prlinks == nil {

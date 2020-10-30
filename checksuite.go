@@ -45,7 +45,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 					*event.Repo.Name,
 					*cr.ID,
 					title,
-					fmt.Sprintf("refusing to build non-local PR, org members can run them manually using `/kube-ci run`"),
+					"refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
 					"completed",
 					"failure",
 				)
@@ -95,7 +95,7 @@ func (ws *workflowSyncer) policy(ctx context.Context, ghClient *github.Client, e
 				*event.Repo.Name,
 				*cr.ID,
 				title,
-				fmt.Sprintf("auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`"),
+				"auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
 				"completed",
 				"failure",
 			)
