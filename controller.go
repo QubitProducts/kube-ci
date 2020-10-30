@@ -196,7 +196,9 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	repo := *event.Repo.Name
 	headBranch := *event.CheckSuite.HeadBranch
 	headSHA := *event.CheckSuite.HeadSHA
-	gitURL := event.Repo.GetSSHURL()
+	gitURL := event.Repo.GetGitURL()
+	sshURL := event.Repo.GetSSHURL()
+	httpsURL := event.Repo.GetCloneURL()
 	instID := *event.Installation.ID
 
 	wfType := "ci"
@@ -239,7 +241,15 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	parms = append(parms, []workflow.Parameter{
 		{
 			Name:  "repo",
+			Value: workflow.Int64OrStringPtr(sshURL),
+		},
+		{
+			Name:  "repo_git_url",
 			Value: workflow.Int64OrStringPtr(gitURL),
+		},
+		{
+			Name:  "repo_https_url",
+			Value: workflow.Int64OrStringPtr(httpsURL),
 		},
 		{
 			Name:  "repoName",
