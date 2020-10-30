@@ -16,33 +16,19 @@ package main
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/base32"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/google/go-github/v32/github"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 var (
 	checkRunName          = "Argo Workflow"
 	initialCheckRunStatus = github.String("queued")
 )
-
-func detailsHash(org, repo, branch string) string {
-	h := sha1.New()
-	_, _ = h.Write([]byte(org))
-	_, _ = h.Write([]byte(repo))
-	_, _ = h.Write([]byte(branch))
-	bs := h.Sum(nil)
-	str := base32.StdEncoding.EncodeToString(bs)
-	return "ci" + strings.Replace(str, "=+/", "", -1)
-}
 
 // policy enforces the main build policy:
 // - only build Draft PRs if the configured to do so.
@@ -216,22 +202,11 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		return status, msg
 	}
 
-	// We'll cancel all in-progress checks for this
-	// repo/branch
-	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
-		map[string]string{
-			labelOrg:         labelSafe(*event.Repo.Owner.Login),
-			labelRepo:        labelSafe(*event.Repo.Name),
-			labelBranch:      labelSafe(*event.CheckSuite.HeadBranch),
-			labelDetailsHash: detailsHash(*event.Repo.Owner.Login, *event.Repo.Name, *event.CheckSuite.HeadBranch),
-		}).AsSelector())
-
-	for _, wf := range wfs {
-		wf = wf.DeepCopy()
-		ads := int64(0)
-		wf.Spec.ActiveDeadlineSeconds = &ads
-		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
-	}
+	ws.cancelRunningWorkflows(
+		labelSafe(*event.Repo.Owner.Login),
+		labelSafe(*event.Repo.Name),
+		labelSafe(*event.CheckSuite.HeadBranch),
+	)
 
 	wf = wf.DeepCopy()
 	ws.updateWorkflow(wf, event, cr)

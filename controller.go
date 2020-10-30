@@ -60,13 +60,12 @@ var (
 	annCacheVolumeStorageSize      = "kube-ci.qutics.com/cacheSize"
 	annCacheVolumeStorageClassName = "kube-ci.qutics.com/cacheStorageClassName"
 
-	labelManagedBy   = "managedBy"
-	labelWFType      = "wfType"
-	labelOrg         = "org"
-	labelRepo        = "repo"
-	labelBranch      = "branch"
-	labelDetailsHash = "detailsHash"
-	labelScope       = "scope"
+	labelManagedBy = "managedBy"
+	labelWFType    = "wfType"
+	labelOrg       = "org"
+	labelRepo      = "repo"
+	labelBranch    = "branch"
+	labelScope     = "scope"
 )
 
 type githubKeyStore struct {
@@ -293,7 +292,6 @@ func (ws *workflowSyncer) updateWorkflow(wf *workflow.Workflow, event *github.Ch
 	wf.Labels[labelOrg] = labelSafe(owner)
 	wf.Labels[labelRepo] = labelSafe(repo)
 	wf.Labels[labelBranch] = labelSafe(headBranch)
-	wf.Labels[labelDetailsHash] = detailsHash(owner, repo, headBranch)
 
 	if wf.Annotations == nil {
 		wf.Annotations = make(map[string]string)

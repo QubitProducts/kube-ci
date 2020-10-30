@@ -141,6 +141,25 @@ known command:
 	return ws.slashComment(ctx, ghClient, event, body)
 }
 
+func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
+	// We'll cancel all in-progress checks for this
+	// repo/branch
+	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
+		map[string]string{
+			labelOrg:    org,
+			labelRepo:   repo,
+			labelBranch: branch,
+		}).AsSelector())
+
+	for _, wf := range wfs {
+		wf = wf.DeepCopy()
+		ads := int64(0)
+		wf.Spec.ActiveDeadlineSeconds = &ads
+		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
+	}
+	log.Printf("failed clearing existing workflows, %v", err)
+}
+
 func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
 	owner := event.Repo.GetOwner().GetLogin()
 	repo := event.Repo.GetName()
@@ -236,22 +255,11 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 	}
 
 	headref := pr.GetHead().GetRef()
-	// We'll cancel all in-progress checks for this
-	// repo/branch
-	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
-		map[string]string{
-			labelOrg:         labelSafe(*event.Repo.Owner.Login),
-			labelRepo:        labelSafe(*event.Repo.Name),
-			labelBranch:      labelSafe(headref),
-			labelDetailsHash: detailsHash(owner, repo, headref),
-		}).AsSelector())
-
-	for _, wf := range wfs {
-		wf = wf.DeepCopy()
-		ads := int64(0)
-		wf.Spec.ActiveDeadlineSeconds = &ads
-		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
-	}
+	ws.cancelRunningWorkflows(
+		labelSafe(*event.Repo.Owner.Login),
+		labelSafe(*event.Repo.Name),
+		labelSafe(headref),
+	)
 
 	wf = wf.DeepCopy()
 	ws.updateWorkflow(wf, &github.CheckSuiteEvent{
