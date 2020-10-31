@@ -41,7 +41,7 @@ func (ws *workflowSyncer) policy(
 	title string,
 	prs []*github.PullRequest,
 	cr *github.CheckRun,
-) (int, string) {
+) bool {
 
 	if len(prs) > 0 {
 		for _, pr := range prs {
@@ -58,7 +58,7 @@ func (ws *workflowSyncer) policy(
 					"failure",
 				)
 				log.Printf("not running %s %s, as it for a PR from a non-local branch", repo.GetFullName(), headBranch)
-				return http.StatusOK, "not building non local PR"
+				return false
 			}
 		}
 
@@ -85,7 +85,7 @@ func (ws *workflowSyncer) policy(
 
 				log.Printf("not running %s %s, base branch did not match %s", repo.GetFullName(), headBranch, ws.config.buildBranches.String())
 
-				return http.StatusOK, "skipping unmatched base branch"
+				return false
 			}
 		}
 
@@ -106,10 +106,10 @@ func (ws *workflowSyncer) policy(
 				"failure",
 			)
 			log.Printf("not running %s %s, as it is only used in draft PRs", repo.GetFullName(), headBranch)
-			return http.StatusOK, "skipping draft PR"
+			return false
 		}
 
-		return 0, ""
+		return true
 	}
 
 	// this commit was not for a PR, so we confirm we should build for the head branch it was targettted at
@@ -125,10 +125,10 @@ func (ws *workflowSyncer) policy(
 			"failure",
 		)
 		log.Printf("not running %s %s, as it target unmatched base branches", repo.GetFullName(), headBranch)
-		return http.StatusOK, "skipping PR to unmatched base branch "
+		return false
 	}
 
-	return 0, ""
+	return true
 }
 
 func ghUpdateCheckRun(
@@ -179,7 +179,7 @@ func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.Cr
 	return 0, ""
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Client, instID int64, repo *github.Repository, headsha, headbranch string, prs []*github.PullRequest) (int, string) {
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Client, instID int64, repo *github.Repository, headsha, headbranch string, prs []*github.PullRequest) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
 	wf, err := ws.getWorkflow(
@@ -197,7 +197,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 			name,
 			headsha,
 		)
-		return http.StatusOK, ""
+		return nil
 	}
 
 	title := "Workflow Setup"
@@ -216,7 +216,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 	)
 	if crerr != nil {
 		log.Printf("Unable to create check run, %v", err)
-		return http.StatusInternalServerError, ""
+		return fmt.Errorf("creating check run failed, %w", err)
 	}
 
 	ghUpdateCheckRun(
@@ -242,11 +242,12 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 			"completed",
 			"failure",
 		)
-		return http.StatusOK, msg
+		log.Printf("unable to parse workflow for %s (%s), %v", repo, headbranch, err)
+		return nil
 	}
 
-	if status, msg := ws.policy(ctx, ghClient, repo, headbranch, title, prs, cr); status != 0 {
-		return status, msg
+	if !ws.policy(ctx, ghClient, repo, headbranch, title, prs, cr) {
+		return nil
 	}
 
 	ws.cancelRunningWorkflows(
@@ -284,6 +285,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 			"completed",
 			"failure",
 		)
+		return err
 	}
 
 	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
@@ -299,10 +301,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 			"failure",
 		)
 
-		return http.StatusInternalServerError, ""
+		return fmt.Errorf("workflow creation failed, %w", err)
 	}
 
-	return http.StatusOK, ""
+	return nil
 }
 
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
@@ -310,7 +312,8 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
-	return ws.runWorkflow(
+
+	err = ws.runWorkflow(
 		ctx,
 		ghClient,
 		event.Installation.GetID(),
@@ -319,6 +322,10 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		*event.CheckSuite.HeadBranch,
 		event.CheckSuite.PullRequests,
 	)
+
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
 
 	return http.StatusOK, ""
 }

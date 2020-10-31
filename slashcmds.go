@@ -184,7 +184,7 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 
 	headsha := pr.GetHead().GetSHA()
 	headref := pr.GetHead().GetRef()
-	status, message := ws.runWorkflow(
+	return ws.runWorkflow(
 		ctx,
 		ghClient,
 		event.Installation.GetID(),
@@ -193,11 +193,6 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 		headref,
 		[]*github.PullRequest{pr},
 	)
-
-	if status != http.StatusOK && status != 0 {
-		return errors.New(message)
-	}
-	return nil
 }
 
 func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
