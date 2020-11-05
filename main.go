@@ -149,6 +149,9 @@ func main() {
 				log.Fatalf("failed to read id file, %v", err)
 			}
 			idStr := strings.TrimSpace(string(line))
+			if idStr == "" {
+				continue
+			}
 			id, err := strconv.Atoi(idStr)
 			if err != nil {
 				log.Fatalf("failed to parse org id %q as integer, %v", idStr, err)
