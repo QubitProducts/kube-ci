@@ -190,6 +190,7 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 		event.Installation.GetID(),
 		event.Repo,
 		headsha,
+		"branch",
 		headref,
 		[]*github.PullRequest{pr},
 	)
