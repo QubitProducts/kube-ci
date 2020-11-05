@@ -549,7 +549,7 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 
 	ghUpdateCheckRun(
 		context.Background(),
-		ghClient,
+		ghClient.Checks,
 		repo,
 		*newCR.ID,
 		"Workflow Setup",

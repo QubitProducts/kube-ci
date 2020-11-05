@@ -29,9 +29,19 @@ var (
 	initialCheckRunStatus = github.String("queued")
 )
 
+type ghCheckRunUpdater interface {
+	UpdateCheckRun(
+		ctx context.Context,
+		org string,
+		repoName string,
+		crID int64,
+		opts github.UpdateCheckRunOptions,
+	) (*github.CheckRun, *github.Response, error)
+}
+
 func ghUpdateCheckRun(
 	ctx context.Context,
-	ghClient *github.Client,
+	updater ghCheckRunUpdater,
 	repo *github.Repository,
 	crID int64,
 	title string,
@@ -58,7 +68,7 @@ func ghUpdateCheckRun(
 			Time: time.Now(),
 		}
 	}
-	_, _, err := ghClient.Checks.UpdateCheckRun(
+	_, _, err := updater.UpdateCheckRun(
 		ctx,
 		org,
 		repoName,
