@@ -14,12 +14,12 @@ import (
 // - only build PRs that are targeted at one of our valid base branches
 func (ws *workflowSyncer) policy(
 	ctx context.Context,
-	ghClient *github.Client,
+	updater ghCheckRunUpdater,
 	repo *github.Repository,
 	headBranch string,
 	title string,
 	prs []*github.PullRequest,
-	cr *github.CheckRun,
+	crID int64,
 ) bool {
 
 	if len(prs) > 0 {
@@ -28,9 +28,9 @@ func (ws *workflowSyncer) policy(
 				*pr.Head.Repo.URL != *repo.URL {
 				ghUpdateCheckRun(
 					ctx,
-					ghClient,
+					updater,
 					repo,
-					*cr.ID,
+					crID,
 					title,
 					"refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
 					"completed",
@@ -53,9 +53,9 @@ func (ws *workflowSyncer) policy(
 			if !baseMatched {
 				ghUpdateCheckRun(
 					ctx,
-					ghClient,
+					updater,
 					repo,
-					*cr.ID,
+					crID,
 					title,
 					fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
 					"completed",
@@ -76,9 +76,9 @@ func (ws *workflowSyncer) policy(
 		if onlyDrafts && !ws.config.BuildDraftPRs {
 			ghUpdateCheckRun(
 				ctx,
-				ghClient,
+				updater,
 				repo,
-				*cr.ID,
+				crID,
 				title,
 				"auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
 				"completed",
@@ -95,9 +95,9 @@ func (ws *workflowSyncer) policy(
 	if ws.config.buildBranches != nil && !ws.config.buildBranches.MatchString(headBranch) {
 		ghUpdateCheckRun(
 			ctx,
-			ghClient,
+			updater,
 			repo,
-			*cr.ID,
+			crID,
 			title,
 			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
 			"completed",
@@ -152,7 +152,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 
 	ghUpdateCheckRun(
 		ctx,
-		ghClient,
+		ghClient.Checks,
 		repo,
 		*cr.ID,
 		title,
@@ -165,7 +165,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
 		ghUpdateCheckRun(
 			ctx,
-			ghClient,
+			ghClient.Checks,
 			repo,
 			*cr.ID,
 			title,
@@ -177,7 +177,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 		return nil
 	}
 
-	if !ws.policy(ctx, ghClient, repo, headbranch, title, prs, cr) {
+	if !ws.policy(ctx, ghClient.Checks, repo, headbranch, title, prs, *cr.ID) {
 		return nil
 	}
 
@@ -208,7 +208,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 	if err != nil {
 		ghUpdateCheckRun(
 			ctx,
-			ghClient,
+			ghClient.Checks,
 			repo,
 			*cr.ID,
 			title,
@@ -223,7 +223,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 	if err != nil {
 		ghUpdateCheckRun(
 			ctx,
-			ghClient,
+			ghClient.Checks,
 			repo,
 			*cr.ID,
 			title,
