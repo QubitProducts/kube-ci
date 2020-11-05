@@ -14,6 +14,10 @@
 
 package main
 
+// controller.go: the controller (TODO: also currently syncer), updates
+// a github check run to match the current state of a workflow created
+// in kubernetes.
+
 import (
 	"bytes"
 	"context"
@@ -175,138 +179,6 @@ func labelSafe(strs ...string) string {
 	}
 
 	return sanitizeToDNS.ReplaceAllString(str, "")
-}
-
-func wfName(prefix, owner, repo, branch string) string {
-	timeStr := strconv.Itoa(int(time.Now().Unix()))
-	if len(prefix) > 0 {
-		return labelSafe(prefix, owner, repo, branch, timeStr)
-	}
-	return labelSafe(owner, repo, branch, timeStr)
-}
-
-// updateWorkflow, lots of these settings shoud come in from some config.
-func (ws *workflowSyncer) updateWorkflow(
-	wf *workflow.Workflow,
-	instID int64,
-	repo *github.Repository,
-	prs []*github.PullRequest,
-	headSHA string,
-	headBranch string,
-	cr *github.CheckRun) {
-
-	owner := *repo.Owner.Login
-	repoName := *repo.Name
-	gitURL := repo.GetGitURL()
-	sshURL := repo.GetSSHURL()
-	httpsURL := repo.GetCloneURL()
-
-	wfType := "ci"
-	wf.GenerateName = ""
-	wf.Name = wfName(wfType, owner, repoName, headBranch)
-
-	if ws.config.Namespace != "" {
-		wf.Namespace = ws.config.Namespace
-	}
-
-	ttl := int32((3 * 24 * time.Hour) / time.Second)
-	wf.Spec.TTLSecondsAfterFinished = &ttl
-
-	wf.Spec.Tolerations = append(
-		wf.Spec.Tolerations,
-		ws.config.Tolerations...,
-	)
-
-	if wf.Spec.NodeSelector == nil {
-		wf.Spec.NodeSelector = map[string]string{}
-	}
-	for k, v := range ws.config.NodeSelector {
-		wf.Spec.NodeSelector[k] = v
-	}
-
-	var parms []workflow.Parameter
-	for _, p := range wf.Spec.Arguments.Parameters {
-		if p.Name == "repo" ||
-			p.Name == "pullRequestID" ||
-			p.Name == "pullRequestBaseBranch" ||
-			p.Name == "branch" ||
-			p.Name == "revision" ||
-			p.Name == "orgname" ||
-			p.Name == "reponame" {
-			continue
-		}
-		parms = append(parms, p)
-	}
-
-	parms = append(parms, []workflow.Parameter{
-		{
-			Name:  "repo",
-			Value: workflow.Int64OrStringPtr(sshURL),
-		},
-		{
-			Name:  "repo_git_url",
-			Value: workflow.Int64OrStringPtr(gitURL),
-		},
-		{
-			Name:  "repo_https_url",
-			Value: workflow.Int64OrStringPtr(httpsURL),
-		},
-		{
-			Name:  "repoName",
-			Value: workflow.Int64OrStringPtr(repo),
-		},
-		{
-			Name:  "orgName",
-			Value: workflow.Int64OrStringPtr(owner),
-		},
-		{
-			Name:  "revision",
-			Value: workflow.Int64OrStringPtr(headSHA),
-		},
-		{
-			Name:  "branch",
-			Value: workflow.Int64OrStringPtr(headBranch),
-		},
-	}...)
-	if len(prs) != 0 {
-		pr := prs[0]
-		prid := strconv.Itoa(pr.GetNumber())
-		parms = append(parms, []workflow.Parameter{
-			{
-				Name:  "pullRequestID",
-				Value: workflow.Int64OrStringPtr(prid),
-			},
-			{
-				Name:  "pullRequestBaseBranch",
-				Value: workflow.Int64OrStringPtr(*pr.Base.Ref),
-			},
-		}...)
-	}
-
-	wf.Spec.Arguments.Parameters = parms
-
-	if wf.Labels == nil {
-		wf.Labels = make(map[string]string)
-	}
-	wf.Labels[labelManagedBy] = "kube-ci"
-	wf.Labels[labelWFType] = wfType
-	wf.Labels[labelOrg] = labelSafe(owner)
-	wf.Labels[labelRepo] = labelSafe(repoName)
-	wf.Labels[labelBranch] = labelSafe(headBranch)
-
-	if wf.Annotations == nil {
-		wf.Annotations = make(map[string]string)
-	}
-
-	wf.Annotations[annCommit] = headSHA
-	wf.Annotations[annBranch] = headBranch
-	wf.Annotations[annRepo] = repoName
-	wf.Annotations[annOrg] = owner
-
-	wf.Annotations[annInstID] = strconv.Itoa(int(instID))
-
-	wf.Annotations[annCheckRunName] = *cr.Name
-	wf.Annotations[annCheckRunID] = strconv.Itoa(int(*cr.ID))
 }
 
 func (ws *workflowSyncer) enqueue(obj interface{}) {

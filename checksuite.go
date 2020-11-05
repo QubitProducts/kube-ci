@@ -99,6 +99,7 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 		event.Installation.GetID(),
 		event.Repo,
 		*event.CheckSuite.HeadSHA,
+		"branch",
 		*event.CheckSuite.HeadBranch,
 		event.CheckSuite.PullRequests,
 	)
