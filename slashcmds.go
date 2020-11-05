@@ -156,7 +156,9 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 		wf.Spec.ActiveDeadlineSeconds = &ads
 		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
 	}
-	log.Printf("failed clearing existing workflows, %v", err)
+	if err != nil {
+		log.Printf("failed clearing existing workflows, %v", err)
+	}
 }
 
 func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {

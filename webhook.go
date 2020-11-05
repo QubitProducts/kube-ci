@@ -86,7 +86,7 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 			return ws.webhookCheckSuite(ctx, ev)
 		case "requested_action":
 			return ws.webhookCheckRunRequestAction(ctx, event)
-		case "completed":
+		case "created", "completed":
 			return http.StatusOK, "OK"
 		default:
 			log.Printf("unknown checkrun action %q ignored", *event.Action)
