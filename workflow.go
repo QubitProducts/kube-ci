@@ -101,7 +101,7 @@ func (ws *workflowSyncer) updateWorkflow(
 			Value: workflow.Int64OrStringPtr(headSHA),
 		},
 		{
-			Name:  "refName",
+			Name:  "refType",
 			Value: workflow.Int64OrStringPtr(headRefType),
 		},
 		{
