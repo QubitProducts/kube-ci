@@ -90,7 +90,7 @@ func (ws *workflowSyncer) updateWorkflow(
 		},
 		{
 			Name:  "repoName",
-			Value: workflow.Int64OrStringPtr(repo),
+			Value: workflow.Int64OrStringPtr(repoName),
 		},
 		{
 			Name:  "orgName",
