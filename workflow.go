@@ -24,8 +24,9 @@ func (ws *workflowSyncer) policy(
 
 	if len(prs) > 0 {
 		for _, pr := range prs {
-			if *pr.Head.Repo.URL != *pr.Base.Repo.URL ||
-				*pr.Head.Repo.URL != *repo.URL {
+			// TODO(tcolgate): I think this is never actually the case for web events. External PRs aren't
+			// included
+			if *pr.Head.Repo.URL != *pr.Base.Repo.URL {
 				ghUpdateCheckRun(
 					ctx,
 					updater,
