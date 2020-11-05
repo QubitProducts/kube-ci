@@ -80,9 +80,6 @@ func ghUpdateCheckRun(
 	}
 }
 
-type orgClient struct {
-}
-
 func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
 	return 0, ""
 }

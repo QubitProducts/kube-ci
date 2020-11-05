@@ -599,17 +599,17 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 	}
 
 	var actions []*github.CheckRunAction
-	if wf.Status.Phase == workflow.NodeSucceeded {
-		/*
-			actions = []*github.CheckRunAction{
-				{
-					Label:       "Deploy Me",
-					Description: "Do the thing ",
-					Identifier:  "deploy",
-				},
-			}
-		*/
-	}
+	/*
+		if wf.Status.Phase == workflow.NodeSucceeded {
+				actions = []*github.CheckRunAction{
+					{
+						Label:       "Deploy Me",
+						Description: "Do the thing ",
+						Identifier:  "deploy",
+					},
+				}
+		}
+	*/
 
 	_, _, err = ghClient.Checks.UpdateCheckRun(
 		context.Background(),
