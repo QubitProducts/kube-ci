@@ -35,6 +35,20 @@ If a repo contains the require kube-ci files, then a build will be triggered if:
 - If `/kube-ci run` command is issued by a member of an org that matches a configurable
   regexp.
 
+## Workflow Annotations.
+
+You can use annotations to control a few aspects of workflow execution.
+
+Cache volume:
+
+- *kube-ci.qutics.com/cacheScope*: "project" or "branch", whether the volume is create per
+  github project, or per branch. Branch cache volumes are deleted when the branch is deleted.
+  All related volumes are deleted when a project is deleted or archived.
+- *kube-ci.qutics.com/cacheSize*: e.g. "20Gi", this can be used to set the size of the volume.
+- *kube-ci.qutics.com/cacheStorageClassName*: override the storage class name used for creating the volume
+- *kube-ci.qutics.com/cacheName*: This can be used to set a specific PVC claim name to be used as the cache,
+  other cache settings will be ignored.
+
 ## Workflow Parameters.
 
 Some extra parameteres will be added to your workflow before it is run.
@@ -45,7 +59,10 @@ Some extra parameteres will be added to your workflow before it is run.
 - *repoName*: repo
 - *orgName*: yourorg
 - *revision*: 01245789abc.....
-- *branch*: newpr5 (the head branch)
+- *refType*: "branch" or "tag"
+- *refName*: someref (regardless of branch or tag)
+- *branch*: newpr5 (the head branch) (only if this is a branch)
+- *tag*: v1.0.1 (tag if this is from a tag push or create)
 - *cacheVolumeClaimName*: the name of the pvc created (if requested)
 
 Workflows run for pull-requests will get this additional parameters:
@@ -86,6 +103,7 @@ annotations:
   - Enable the following events (TODO: not all of these are used, needs review):
     - Check suite
     - Check run
+    - Push
     - Create
     - Delete
     - Commit Comment
@@ -94,7 +112,6 @@ annotations:
     - Issue Comment
     - Pull Request
     - Pull Request Review
-    - Push
     - Release
     - Repository
 
