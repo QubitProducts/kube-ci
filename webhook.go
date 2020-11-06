@@ -66,7 +66,6 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 			return http.StatusOK, "unknown checksuite action ignored"
 		}
 
-	//case *github.PushEvent:
 	case *github.CreateEvent:
 		switch event.GetRefType() {
 		case "tag":

@@ -257,6 +257,39 @@ func (ws *workflowSyncer) policy(
 	return true
 }
 
+func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
+	runBranch := true
+	runTag := false
+
+	for k, vstr := range wf.GetAnnotations() {
+		switch k {
+		case annRunBranch:
+			v, err := strconv.ParseBool(vstr)
+			if err != nil {
+				log.Printf(`ignoring bad values %q for %s, should be "true" or "false"`, vstr, annRunBranch)
+				continue
+			}
+			runBranch = v
+		case annRunTag:
+			v, err := strconv.ParseBool(vstr)
+			if err != nil {
+				log.Printf(`ignoring bad values %q for %s, should be "true" or "false"`, vstr, annRunBranch)
+				continue
+			}
+			runTag = v
+		}
+	}
+
+	switch reftype {
+	case "branch":
+		return runBranch
+	case "tag":
+		return runTag
+	default:
+		return false
+	}
+}
+
 func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Client, instID int64, repo *github.Repository, headsha, headreftype, headbranch string, prs []*github.PullRequest) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
@@ -274,6 +307,16 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 			org,
 			name,
 			headsha,
+		)
+		return nil
+	}
+
+	if !runBranchOrTag(headreftype, wf) {
+		log.Printf("not running %s/%s (%s) for reftype %s",
+			org,
+			name,
+			headsha,
+			headreftype,
 		)
 		return nil
 	}

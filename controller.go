@@ -50,18 +50,22 @@ import (
 )
 
 var (
-	annCommit                      = "kube-ci.qutics.com/sha"
-	annBranch                      = "kube-ci.qutics.com/branch"
-	annRepo                        = "kube-ci.qutics.com/repo"
-	annOrg                         = "kube-ci.qutics.com/org"
-	annInstID                      = "kube-ci.qutics.com/github-install-id"
-	annCheckRunName                = "kube-ci.qutics.com/check-run-name"
-	annCheckRunID                  = "kube-ci.qutics.com/check-run-id"
-	annAnnotationsPublished        = "kube-ci.qutics.com/annotations-published"
+	annCommit               = "kube-ci.qutics.com/sha"
+	annBranch               = "kube-ci.qutics.com/branch"
+	annRepo                 = "kube-ci.qutics.com/repo"
+	annOrg                  = "kube-ci.qutics.com/org"
+	annInstID               = "kube-ci.qutics.com/github-install-id"
+	annCheckRunName         = "kube-ci.qutics.com/check-run-name"
+	annCheckRunID           = "kube-ci.qutics.com/check-run-id"
+	annAnnotationsPublished = "kube-ci.qutics.com/annotations-published"
+
 	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
 	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
 	annCacheVolumeStorageSize      = "kube-ci.qutics.com/cacheSize"
 	annCacheVolumeStorageClassName = "kube-ci.qutics.com/cacheStorageClassName"
+
+	annRunBranch = "kube-ci.qutics.com/runForBranch"
+	annRunTag    = "kube-ci.qutics.com/runForTag"
 
 	labelManagedBy = "managedBy"
 	labelWFType    = "wfType"

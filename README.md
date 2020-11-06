@@ -29,7 +29,8 @@ kube-ci:
 
 If a repo contains the require kube-ci files, then a build will be triggered if:
 
-- A commit to a branches matching a configurable regexp is pushed.
+- A commit to a branches matching a configurable regexp is pushed (specifically when a CheckSuite even is sent). (Unless runForBranch is set to "false")
+- A new tag is created (only if the "runForTag" annotation is set to "true")
 - A non-Draft PR is raised between branches in the existing repository. (a configuration
   option allows building of Draft PR branches too).  - If a PR is from a remote repository a manual run must be triggered using /kube-ci.
 - If `/kube-ci run` command is issued by a member of an org that matches a configurable
@@ -39,8 +40,11 @@ If a repo contains the require kube-ci files, then a build will be triggered if:
 
 You can use annotations to control a few aspects of workflow execution.
 
-Cache volume:
+Selective running:
+  *kube-ci.qutics.com/runForBranch*: defaults to "true", runs for branches (specifically triggered from github CheckRun events when commits are pushed)
+  *kube-ci.qutics.com/runForTag*: defaults to "false", runs when a tag is created.
 
+Cache volume:
 - *kube-ci.qutics.com/cacheScope*: "project" or "branch", whether the volume is create per
   github project, or per branch. Branch cache volumes are deleted when the branch is deleted.
   All related volumes are deleted when a project is deleted or archived.

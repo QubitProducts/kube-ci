@@ -81,7 +81,41 @@ func ghUpdateCheckRun(
 }
 
 func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
-	return 0, ""
+	owner := event.Repo.Owner.GetLogin()
+	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID))
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+
+	ref, _, err := ghClient.Git.GetRef(
+		ctx,
+		owner,
+		event.Repo.GetName(),
+		"tags/"+event.GetRef(),
+	)
+
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+
+	headSHA := ref.Object.GetSHA()
+
+	err = ws.runWorkflow(
+		ctx,
+		ghClient,
+		event.Installation.GetID(),
+		event.Repo,
+		headSHA,
+		"tag",
+		event.GetRef(),
+		nil,
+	)
+
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+
+	return http.StatusOK, ""
 }
 
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
