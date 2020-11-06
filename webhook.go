@@ -31,11 +31,18 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 	type repoGetter interface {
 		GetRepo() *github.Repository
 	}
+	type pushRepoGetter interface {
+		GetRepo() *github.PushEventRepository
+	}
 
-	if rev, ok := rawEvent.(repoGetter); ok {
+	switch rev := rawEvent.(type) {
+	case repoGetter:
 		r := rev.GetRepo()
 		log.Printf("webhook event of type %s for %s/%s", eventType, r.GetOwner().GetLogin(), r.GetName())
-	} else {
+	case pushRepoGetter:
+		r := rev.GetRepo()
+		log.Printf("webhook event of type %s for %s/%s", eventType, r.GetOwner().GetLogin(), r.GetName())
+	default:
 		log.Printf("webhook event of type %s", eventType)
 	}
 
