@@ -114,20 +114,26 @@ func (ws *workflowSyncer) updateWorkflow(
 		},
 	}...)
 
+	prIDArg := workflow.Int64OrStringPtr("")
+	prBaseArg := workflow.Int64OrStringPtr("")
+
 	if len(prs) != 0 {
 		pr := prs[0]
 		prid := strconv.Itoa(pr.GetNumber())
-		parms = append(parms, []workflow.Parameter{
-			{
-				Name:  "pullRequestID",
-				Value: workflow.Int64OrStringPtr(prid),
-			},
-			{
-				Name:  "pullRequestBaseBranch",
-				Value: workflow.Int64OrStringPtr(*pr.Base.Ref),
-			},
-		}...)
+		prIDArg = workflow.Int64OrStringPtr(prid)
+		prBaseArg = workflow.Int64OrStringPtr(*pr.Base.Ref)
 	}
+
+	parms = append(parms, []workflow.Parameter{
+		{
+			Name:  "pullRequestID",
+			Value: prIDArg,
+		},
+		{
+			Name:  "pullRequestBaseBranch",
+			Value: prBaseArg,
+		},
+	}...)
 
 	wf.Spec.Arguments.Parameters = parms
 
