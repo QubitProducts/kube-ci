@@ -1,0 +1,17 @@
+// This file is part of kube-co.
+
+syntax = "proto3";
+option go_package = "github.com/tcolgate/kube-ci/kubecipb";
+
+package kubecipb;
+
+message Request {
+}
+
+message Response {
+}
+
+service CIRunner {
+}
+
+
