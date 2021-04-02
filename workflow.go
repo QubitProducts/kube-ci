@@ -288,6 +288,9 @@ func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
 	}
 }
 
+// StatusUpdater in an interface for informing something about the an update on
+// the progress of a workflow run. The crid arg shoul dbe factored out so this
+// closes over amore abstract concept.
 type StatusUpdater interface {
 	StatusUpdate(
 		ctx context.Context,

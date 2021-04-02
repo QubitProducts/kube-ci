@@ -28,14 +28,6 @@ var (
 	initialCheckRunStatus = github.String("queued")
 )
 
-type ghCheckRunUpdater interface {
-	UpdateCheckRun(
-		ctx context.Context,
-		crID int64,
-		opts github.UpdateCheckRunOptions,
-	) (*github.CheckRun, error)
-}
-
 func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
 	owner := event.Repo.Owner.GetLogin()
 	repo := event.Repo.GetName()
