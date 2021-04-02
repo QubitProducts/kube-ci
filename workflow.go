@@ -182,7 +182,6 @@ func (ws *workflowSyncer) policy(
 				ghUpdateCheckRun(
 					ctx,
 					updater,
-					repo,
 					crID,
 					title,
 					"refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
@@ -207,7 +206,6 @@ func (ws *workflowSyncer) policy(
 				ghUpdateCheckRun(
 					ctx,
 					updater,
-					repo,
 					crID,
 					title,
 					fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
@@ -230,7 +228,6 @@ func (ws *workflowSyncer) policy(
 			ghUpdateCheckRun(
 				ctx,
 				updater,
-				repo,
 				crID,
 				title,
 				"auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
@@ -249,7 +246,6 @@ func (ws *workflowSyncer) policy(
 		ghUpdateCheckRun(
 			ctx,
 			updater,
-			repo,
 			crID,
 			title,
 			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
@@ -296,7 +292,19 @@ func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
 	}
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Client, instID int64, repo *github.Repository, headsha, headreftype, headbranch string, prs []*github.PullRequest) error {
+type StatusUpdater interface {
+	StatusUpdate(
+		ctx context.Context,
+		updater ghCheckRunUpdater,
+		crID int64,
+		title string,
+		msg string,
+		status string,
+		conclusion string,
+	)
+}
+
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient, repo *github.Repository, headsha, headreftype, headbranch string, prs []*github.PullRequest, updater StatusUpdater) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
 	wf, err := ws.getWorkflow(
@@ -346,10 +354,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 		return fmt.Errorf("creating check run failed, %w", err)
 	}
 
-	ghUpdateCheckRun(
+	updater.StatusUpdate(
 		ctx,
-		ghClient.Checks,
-		repo,
+		ghClient,
 		*cr.ID,
 		title,
 		"Creating Workflow",
@@ -359,10 +366,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 
 	if err != nil {
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
-		ghUpdateCheckRun(
+		updater.StatusUpdate(
 			ctx,
-			ghClient.Checks,
-			repo,
+			ghClient,
 			*cr.ID,
 			title,
 			msg,
@@ -373,7 +379,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 		return nil
 	}
 
-	if !ws.policy(ctx, ghClient.Checks, repo, headbranch, title, prs, *cr.ID) {
+	if !ws.policy(ctx, ghClient, repo, headbranch, title, prs, *cr.ID) {
 		return nil
 	}
 
@@ -403,10 +409,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 		ws.config.CacheDefaults,
 	)
 	if err != nil {
-		ghUpdateCheckRun(
+		updater.StatusUpdate(
 			ctx,
-			ghClient.Checks,
-			repo,
+			ghClient,
 			*cr.ID,
 			title,
 			fmt.Sprintf("creation of cache volume failed, %v", err),
@@ -418,10 +423,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *github.Clie
 
 	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
 	if err != nil {
-		ghUpdateCheckRun(
+		updater.StatusUpdate(
 			ctx,
-			ghClient.Checks,
-			repo,
+			ghClient,
 			*cr.ID,
 			title,
 			fmt.Sprintf("argo workflow creation failed, %v", err),

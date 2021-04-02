@@ -26,14 +26,15 @@ import (
 
 func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
 	org := event.GetRepo().GetOwner().Login
+	repo := event.GetRepo().GetName()
 
-	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID))
+	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo, "OWNER")
 	if err != nil {
 		return http.StatusBadRequest, "failed to create github client"
 	}
 
 	user := event.Deployment.Creator.Name
-	ok, _, err := ghClient.Organizations.IsMember(ctx, *org, *user)
+	ok, err := ghClient.IsMember(ctx, *user)
 	if err != nil {
 		return http.StatusBadRequest, "failed to check org membership"
 	}

@@ -52,7 +52,7 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 	}
 
 	user := event.Comment.GetUser()
-	ok, _, err := ghClient.Organizations.IsMember(ctx, *org, user.GetLogin())
+	ok, err := ghClient.IsMember(ctx, user.GetLogin())
 	if err != nil {
 		log.Printf("error querying github membership, %v", err)
 		return http.StatusBadRequest, "failed to check org membership"
@@ -77,7 +77,7 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 		}
 	}
 
-	type slashCommand func(ctx context.Context, ghc *github.Client, event *github.IssueCommentEvent, args ...string) error
+	type slashCommand func(ctx context.Context, ghc *orgClient, event *github.IssueCommentEvent, args ...string) error
 	handlers := map[string]slashCommand{
 		"run":    ws.slashRun,
 		"deploy": ws.slashDeploy,

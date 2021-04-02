@@ -83,7 +83,7 @@ type githubKeyStore struct {
 	orgs          *regexp.Regexp
 }
 
-func (ks *githubKeyStore) getClient(org string, installID int) (*github.Client, error) {
+func (ks *githubKeyStore) getClient(org string, installID int, repo, owner string) (*repoClient, error) {
 	validID := false
 	for _, id := range ks.ids {
 		if installID == id {
@@ -105,11 +105,79 @@ func (ks *githubKeyStore) getClient(org string, installID int) (*github.Client, 
 		return nil, err
 	}
 
-	return github.NewClient(&http.Client{Transport: itr}), nil
+	ghc, err := github.NewClient(&http.Client{Transport: itr}), nil
+	if err != nil {
+		return nil, err
+	}
+
+	return &repoClient{
+		installID: installID,
+		org:       org,
+		client:    ghc,
+		repo:      repo,
+		owner:     owner,
+	}, nil
+}
+
+type repoClient struct {
+	installID int
+	org       string
+	repo      string
+	owner     string
+
+	client *github.Client
+}
+
+func (r *repoClient) GetRef(ctx context.Context, ref string) (*github.Reference, error) {
+	gref, _, err := r.client.Git.GetRef(
+		ctx,
+		r.owner,
+		r.repo,
+		ref,
+	)
+	return gref, err
+}
+
+func (r *repoClient) UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error) {
+	cr, _, err := r.client.Checks.UpdateCheckRun(
+		ctx,
+		r.org,
+		r.repo,
+		id,
+		upd,
+	)
+	return cr, err
+}
+func (r *repoClient) CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error) {
+	cr, _, err := r.client.Checks.CreateCheckRun(ctx,
+		r.org,
+		r.repo,
+		opts,
+	)
+	return cr, err
+}
+
+func (r *repoClient) CreateDeployment(ctx context.Context, req *github.DeploymentRequest) (*github.Deployment, error) {
+	dep, _, err := r.client.Repositories.CreateDeployment(
+		ctx,
+		r.org,
+		r.repo,
+		req,
+	)
+	return dep, err
+}
+
+func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
+	ok, _, err := r.client.Organizations.IsMember(
+		ctx,
+		r.org,
+		user,
+	)
+	return ok, err
 }
 
 type githubClientSource interface {
-	getClient(org string, installID int) (*github.Client, error)
+	getClient(org string, installID int, repo, owner string) (*repoClient, error)
 }
 
 // CacheSpec lets you choose the default settings for a
@@ -212,17 +280,15 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName, "OWNER")
 	if err != nil {
 		return
 	}
 
 	status := "completed"
 	conclusion := "cancelled"
-	ghClient.Checks.UpdateCheckRun(
+	ghClient.UpdateCheckRun(
 		context.Background(),
-		cri.orgName,
-		cri.repoName,
 		cri.checkRunID,
 		github.UpdateCheckRunOptions{
 			Name:        cri.checkRunName,
@@ -394,14 +460,12 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName, "OWNER")
 	if err != nil {
 		return nil, err
 	}
 
-	newCR, _, err := ghClient.Checks.CreateCheckRun(context.TODO(),
-		cr.orgName,
-		cr.repoName,
+	newCR, err := ghClient.CreateCheckRun(context.TODO(),
 		github.CreateCheckRunOptions{
 			Name:    checkRunName,
 			HeadSHA: cr.headSHA,
@@ -466,7 +530,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		return nil
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName, "OWNER")
 	if err != nil {
 		return err
 	}
@@ -539,10 +603,8 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		wf.Namespace,
 		wf.Name)
 
-	_, _, err = ghClient.Checks.UpdateCheckRun(
+	_, err = ghClient.UpdateCheckRun(
 		context.Background(),
-		cr.orgName,
-		cr.repoName,
 		cr.checkRunID,
 		github.UpdateCheckRunOptions{
 			Name:        cr.checkRunName,
@@ -597,7 +659,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 		allAnns = append(allAnns, anns...)
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID))
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName, "OWNER")
 	if err != nil {
 		return
 	}
@@ -615,10 +677,8 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 		}
 	*/
 
-	_, _, err = ghClient.Checks.UpdateCheckRun(
+	_, err = ghClient.UpdateCheckRun(
 		context.Background(),
-		cri.orgName,
-		cri.repoName,
 		cri.checkRunID,
 		github.UpdateCheckRunOptions{
 			Name:    cri.checkRunName,
@@ -638,10 +698,8 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 			end = len(allAnns)
 		}
 		anns := allAnns[start:end]
-		_, _, err = ghClient.Checks.UpdateCheckRun(
+		_, err = ghClient.UpdateCheckRun(
 			context.Background(),
-			cri.orgName,
-			cri.repoName,
 			cri.checkRunID,
 			github.UpdateCheckRunOptions{
 				Name:    cri.checkRunName,

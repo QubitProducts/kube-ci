@@ -32,26 +32,20 @@ var (
 type ghCheckRunUpdater interface {
 	UpdateCheckRun(
 		ctx context.Context,
-		org string,
-		repoName string,
 		crID int64,
 		opts github.UpdateCheckRunOptions,
-	) (*github.CheckRun, *github.Response, error)
+	) (*github.CheckRun, error)
 }
 
 func ghUpdateCheckRun(
 	ctx context.Context,
 	updater ghCheckRunUpdater,
-	repo *github.Repository,
 	crID int64,
 	title string,
 	msg string,
 	status string,
 	conclusion string,
 ) {
-	org := repo.GetOwner().GetLogin()
-	repoName := repo.GetName()
-
 	log.Print(msg)
 	opts := github.UpdateCheckRunOptions{
 		Name:   checkRunName,
@@ -68,10 +62,8 @@ func ghUpdateCheckRun(
 			Time: time.Now(),
 		}
 	}
-	_, _, err := updater.UpdateCheckRun(
+	_, err := updater.UpdateCheckRun(
 		ctx,
-		org,
-		repoName,
 		crID,
 		opts)
 
@@ -82,15 +74,14 @@ func ghUpdateCheckRun(
 
 func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
 	owner := event.Repo.Owner.GetLogin()
-	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID))
+	repo := event.Repo.GetName()
+	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID), repo, owner)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
 
-	ref, _, err := ghClient.Git.GetRef(
+	ref, err := ghClient.GetRef(
 		ctx,
-		owner,
-		event.Repo.GetName(),
 		"tags/"+event.GetRef(),
 	)
 
@@ -103,12 +94,12 @@ func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.Cr
 	err = ws.runWorkflow(
 		ctx,
 		ghClient,
-		event.Installation.GetID(),
 		event.Repo,
 		headSHA,
 		"tag",
 		event.GetRef(),
 		nil,
+		ghClient,
 	)
 
 	if err != nil {
@@ -119,7 +110,9 @@ func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.Cr
 }
 
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
-	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID))
+	org := *event.Org.Login
+	repo := event.Repo.GetName()
+	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID), org, repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -143,7 +136,9 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 }
 
 func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
-	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID))
+	repo := *event.Repo.Name
+	owner := event.Repo.Owner.GetName()
+	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID), repo, owner)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -174,10 +169,8 @@ func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, even
 
 	env := "staging"
 	msg := fmt.Sprintf("deploying the thing to %v", env)
-	dep, _, err := ghClient.Repositories.CreateDeployment(
+	dep, err := ghClient.CreateDeployment(
 		ctx,
-		*event.Org.Login,
-		*event.Repo.Name,
 		&github.DeploymentRequest{
 			Ref:         event.CheckRun.HeadSHA,
 			Description: &msg,
