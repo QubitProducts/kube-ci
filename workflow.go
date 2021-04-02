@@ -23,7 +23,7 @@ func wfName(prefix, owner, repo, branch string) string {
 // updateWorkflow, lots of these settings shoud come in from some config.
 func (ws *workflowSyncer) updateWorkflow(
 	wf *workflow.Workflow,
-	instID int64,
+	instID int,
 	repo *github.Repository,
 	prs []*github.PullRequest,
 	headSHA string,
@@ -166,7 +166,7 @@ func (ws *workflowSyncer) updateWorkflow(
 // - only build PRs that are targeted at one of our valid base branches
 func (ws *workflowSyncer) policy(
 	ctx context.Context,
-	updater ghCheckRunUpdater,
+	updater StatusUpdater,
 	repo *github.Repository,
 	headBranch string,
 	title string,
@@ -179,9 +179,8 @@ func (ws *workflowSyncer) policy(
 			// TODO(tcolgate): I think this is never actually the case for web events. External PRs aren't
 			// included
 			if *pr.Head.Repo.URL != *pr.Base.Repo.URL {
-				ghUpdateCheckRun(
+				updater.StatusUpdate(
 					ctx,
-					updater,
 					crID,
 					title,
 					"refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
@@ -203,9 +202,8 @@ func (ws *workflowSyncer) policy(
 			}
 
 			if !baseMatched {
-				ghUpdateCheckRun(
+				updater.StatusUpdate(
 					ctx,
-					updater,
 					crID,
 					title,
 					fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
@@ -225,9 +223,8 @@ func (ws *workflowSyncer) policy(
 		}
 
 		if onlyDrafts && !ws.config.BuildDraftPRs {
-			ghUpdateCheckRun(
+			updater.StatusUpdate(
 				ctx,
-				updater,
 				crID,
 				title,
 				"auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
@@ -243,9 +240,8 @@ func (ws *workflowSyncer) policy(
 
 	// this commit was not for a PR, so we confirm we should build for the head branch it was targettted at
 	if ws.config.buildBranches != nil && !ws.config.buildBranches.MatchString(headBranch) {
-		ghUpdateCheckRun(
+		updater.StatusUpdate(
 			ctx,
-			updater,
 			crID,
 			title,
 			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
@@ -295,7 +291,6 @@ func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
 type StatusUpdater interface {
 	StatusUpdate(
 		ctx context.Context,
-		updater ghCheckRunUpdater,
 		crID int64,
 		title string,
 		msg string,
@@ -336,9 +331,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 	}
 
 	title := "Workflow Setup"
-	cr, _, crerr := ghClient.Checks.CreateCheckRun(ctx,
-		org,
-		name,
+	cr, crerr := ghClient.CreateCheckRun(ctx,
 		github.CreateCheckRunOptions{
 			Name:    checkRunName,
 			HeadSHA: headsha,
@@ -356,7 +349,6 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 
 	updater.StatusUpdate(
 		ctx,
-		ghClient,
 		*cr.ID,
 		title,
 		"Creating Workflow",
@@ -368,7 +360,6 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
 		updater.StatusUpdate(
 			ctx,
-			ghClient,
 			*cr.ID,
 			title,
 			msg,
@@ -392,7 +383,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 	wf = wf.DeepCopy()
 	ws.updateWorkflow(
 		wf,
-		instID,
+		ghClient.GetInstallID(),
 		repo,
 		prs,
 		headsha,
@@ -411,7 +402,6 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 	if err != nil {
 		updater.StatusUpdate(
 			ctx,
-			ghClient,
 			*cr.ID,
 			title,
 			fmt.Sprintf("creation of cache volume failed, %v", err),
@@ -425,7 +415,6 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 	if err != nil {
 		updater.StatusUpdate(
 			ctx,
-			ghClient,
 			*cr.ID,
 			title,
 			fmt.Sprintf("argo workflow creation failed, %v", err),

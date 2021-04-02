@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/google/go-github/v32/github"
 )
@@ -35,41 +34,6 @@ type ghCheckRunUpdater interface {
 		crID int64,
 		opts github.UpdateCheckRunOptions,
 	) (*github.CheckRun, error)
-}
-
-func ghUpdateCheckRun(
-	ctx context.Context,
-	updater ghCheckRunUpdater,
-	crID int64,
-	title string,
-	msg string,
-	status string,
-	conclusion string,
-) {
-	log.Print(msg)
-	opts := github.UpdateCheckRunOptions{
-		Name:   checkRunName,
-		Status: &status,
-		Output: &github.CheckRunOutput{
-			Title:   &title,
-			Summary: &msg,
-		},
-	}
-
-	if conclusion != "" {
-		opts.Conclusion = &conclusion
-		opts.CompletedAt = &github.Timestamp{
-			Time: time.Now(),
-		}
-	}
-	_, err := updater.UpdateCheckRun(
-		ctx,
-		crID,
-		opts)
-
-	if err != nil {
-		log.Printf("Update of aborted check run failed, %v", err)
-	}
 }
 
 func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
@@ -120,12 +84,12 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 	err = ws.runWorkflow(
 		ctx,
 		ghClient,
-		event.Installation.GetID(),
 		event.Repo,
 		*event.CheckSuite.HeadSHA,
 		"branch",
 		*event.CheckSuite.HeadBranch,
 		event.CheckSuite.PullRequests,
+		ghClient,
 	)
 
 	if err != nil {

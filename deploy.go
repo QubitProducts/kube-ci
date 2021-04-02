@@ -50,10 +50,8 @@ func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.D
 		"blah")
 
 	pending := "pending"
-	_, _, err = ghClient.Repositories.CreateDeploymentStatus(
+	_, err = ghClient.CreateDeploymentStatus(
 		ctx,
-		*event.Repo.Owner.Login,
-		*event.Repo.Name,
 		*event.Deployment.ID,
 		&github.DeploymentStatusRequest{
 			State:  &pending,
@@ -69,10 +67,8 @@ func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.D
 	go func() {
 		time.Sleep(10 * time.Second)
 		success := "success"
-		_, _, err := ghClient.Repositories.CreateDeploymentStatus(
+		_, err := ghClient.CreateDeploymentStatus(
 			context.Background(),
-			*event.Repo.Owner.Login,
-			*event.Repo.Name,
 			*event.Deployment.ID,
 			&github.DeploymentStatusRequest{
 				State:  &success,

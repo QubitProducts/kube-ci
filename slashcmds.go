@@ -44,8 +44,9 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 	}
 
 	org := event.GetRepo().GetOwner().Login
+	repo := event.GetRepo().GetName()
 
-	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID))
+	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo, "OWNER")
 	if err != nil {
 		log.Printf("error creating github client, %v", err)
 		return http.StatusBadRequest, "failed to create github client"
@@ -77,7 +78,7 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 		}
 	}
 
-	type slashCommand func(ctx context.Context, ghc *orgClient, event *github.IssueCommentEvent, args ...string) error
+	type slashCommand func(ctx context.Context, ghc *repoClient, event *github.IssueCommentEvent, args ...string) error
 	handlers := map[string]slashCommand{
 		"run":    ws.slashRun,
 		"deploy": ws.slashDeploy,
@@ -100,11 +101,9 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 	return http.StatusOK, ""
 }
 
-func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, body string) error {
-	_, _, err := ghClient.Issues.CreateComment(
+func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, body string) error {
+	err := ghClient.CreateIssueComment(
 		ctx,
-		*event.Repo.Owner.Login,
-		*event.Repo.Name,
 		int(*event.Issue.Number),
 		&github.IssueComment{
 			Body: &body,
@@ -118,7 +117,7 @@ func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *github.Cli
 	return nil
 }
 
-func (ws *workflowSyncer) slashUnknown(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
+func (ws *workflowSyncer) slashUnknown(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	body := `
 known command:
 - *run*: run the workflow onthe current branch (only valid for PRs)
@@ -161,10 +160,7 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 	}
 }
 
-func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
-	owner := event.Repo.GetOwner().GetLogin()
-	repo := event.Repo.GetName()
-
+func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	prlinks := event.GetIssue().GetPullRequestLinks()
 	if prlinks == nil {
 		body := strings.TrimSpace(`
@@ -176,7 +172,7 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 	parts := strings.Split(prlinks.GetURL(), "/")
 	pridstr := parts[len(parts)-1]
 	prid, _ := strconv.Atoi(pridstr)
-	pr, _, err := ghClient.PullRequests.Get(ctx, owner, repo, prid)
+	pr, err := ghClient.GetPullRequest(ctx, prid)
 	if err != nil {
 		return errors.Wrap(err, "failed lookup up PR")
 	}
@@ -189,16 +185,16 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *github.Client,
 	return ws.runWorkflow(
 		ctx,
 		ghClient,
-		event.Installation.GetID(),
 		event.Repo,
 		headsha,
 		"branch",
 		headref,
 		[]*github.PullRequest{pr},
+		ghClient,
 	)
 }
 
-func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
+func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) > 1 {
 		return ws.slashComment(ctx, ghClient, event, "please specify one environment")
 	}
@@ -214,10 +210,8 @@ func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *github.Clie
 	}
 
 	msg := fmt.Sprintf("deploying the thing to %v", env)
-	dep, _, err := ghClient.Repositories.CreateDeployment(
+	dep, err := ghClient.CreateDeployment(
 		ctx,
-		*event.Repo.Owner.Login,
-		*event.Repo.Name,
 		&github.DeploymentRequest{
 			Ref:         &sha,
 			Description: &msg,
@@ -234,7 +228,7 @@ func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *github.Clie
 	return nil
 }
 
-func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent, args ...string) error {
+func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) != 1 {
 		ws.slashComment(ctx, ghClient, event, "you mest specify a template")
 		return nil
@@ -255,10 +249,8 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *github.Clien
 	fileName := ws.config.CIFilePath
 
 	path := filepath.Dir(fileName)
-	_, files, _, err := ghClient.Repositories.GetContents(
+	files, err := ghClient.GetContents(
 		ctx,
-		*event.Repo.Owner.Login,
-		*event.Repo.Name,
 		path,
 		&github.RepositoryContentGetOptions{
 			Ref: branch,
@@ -301,10 +293,8 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *github.Clien
 		Branch:  &branch,
 		SHA:     existingSHA,
 	}
-	_, _, err = ghClient.Repositories.CreateFile(
+	err = ghClient.CreateFile(
 		ctx,
-		*event.Repo.Owner.Login,
-		*event.Repo.Name,
 		fileName,
 		opts)
 	if err != nil {
@@ -314,12 +304,10 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *github.Clien
 	return nil
 }
 
-func (ws *workflowSyncer) issueHead(ctx context.Context, ghClient *github.Client, event *github.IssueCommentEvent) (string, string, error) {
+func (ws *workflowSyncer) issueHead(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent) (string, string, error) {
 	if event.Issue.PullRequestLinks == nil {
-		branch, _, err := ghClient.Repositories.GetBranch(
+		branch, err := ghClient.GetBranch(
 			ctx,
-			*event.Repo.Owner.Login,
-			*event.Repo.Name,
 			*event.Repo.DefaultBranch,
 		)
 		if err != nil {
@@ -335,12 +323,7 @@ func (ws *workflowSyncer) issueHead(ctx context.Context, ghClient *github.Client
 		return "", "", errors.Wrapf(err, "couldn't parse pull-request ID from %s", *link)
 	}
 
-	pr, _, err := ghClient.PullRequests.Get(
-		ctx,
-		*event.Repo.Owner.Login,
-		*event.Repo.Name,
-		prid,
-	)
+	pr, err := ghClient.GetPullRequest(ctx, prid)
 	if err != nil {
 		return "", "", errors.Wrap(err, "couldn't get PR")
 	}

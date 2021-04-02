@@ -128,6 +128,10 @@ type repoClient struct {
 	client *github.Client
 }
 
+func (r *repoClient) GetInstallID() int {
+	return r.installID
+}
+
 func (r *repoClient) GetRef(ctx context.Context, ref string) (*github.Reference, error) {
 	gref, _, err := r.client.Git.GetRef(
 		ctx,
@@ -148,6 +152,43 @@ func (r *repoClient) UpdateCheckRun(ctx context.Context, id int64, upd github.Up
 	)
 	return cr, err
 }
+
+func (r *repoClient) StatusUpdate(
+	ctx context.Context,
+	crID int64,
+	title string,
+	msg string,
+	status string,
+	conclusion string,
+) {
+	log.Print(msg)
+	opts := github.UpdateCheckRunOptions{
+		Name:   checkRunName,
+		Status: &status,
+		Output: &github.CheckRunOutput{
+			Title:   &title,
+			Summary: &msg,
+		},
+	}
+
+	if conclusion != "" {
+		opts.Conclusion = &conclusion
+		opts.CompletedAt = &github.Timestamp{
+			Time: time.Now(),
+		}
+	}
+	_, _, err := r.client.Checks.UpdateCheckRun(
+		ctx,
+		r.org,
+		r.repo,
+		crID,
+		opts)
+
+	if err != nil {
+		log.Printf("Update of aborted check run failed, %v", err)
+	}
+}
+
 func (r *repoClient) CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error) {
 	cr, _, err := r.client.Checks.CreateCheckRun(ctx,
 		r.org,
@@ -167,6 +208,17 @@ func (r *repoClient) CreateDeployment(ctx context.Context, req *github.Deploymen
 	return dep, err
 }
 
+func (r *repoClient) CreateDeploymentStatus(ctx context.Context, id int64, req *github.DeploymentStatusRequest) (*github.DeploymentStatus, error) {
+	dep, _, err := r.client.Repositories.CreateDeploymentStatus(
+		ctx,
+		r.org,
+		r.repo,
+		id,
+		req,
+	)
+	return dep, err
+}
+
 func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
 	ok, _, err := r.client.Organizations.IsMember(
 		ctx,
@@ -174,6 +226,52 @@ func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
 		user,
 	)
 	return ok, err
+}
+
+func (r *repoClient) DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
+	return r.client.Repositories.DownloadContents(
+		ctx,
+		r.org,
+		r.repo,
+		filepath,
+		opts,
+	)
+}
+
+func (r *repoClient) GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
+	_, files, _, err := r.client.Repositories.GetContents(
+		ctx,
+		r.org,
+		r.repo,
+		filepath,
+		opts,
+	)
+	return files, err
+}
+
+func (r *repoClient) CreateFile(ctx context.Context, filepath string, opts *github.RepositoryContentFileOptions) error {
+	_, _, err := r.client.Repositories.CreateFile(ctx, r.org, r.repo, filepath, opts)
+	return err
+}
+
+func (r *repoClient) GetBranch(ctx context.Context, branch string) (*github.Branch, error) {
+	gbranch, _, err := r.client.Repositories.GetBranch(ctx, r.org, r.repo, branch)
+	return gbranch, err
+}
+
+func (r *repoClient) GetPullRequest(ctx context.Context, prid int) (*github.PullRequest, error) {
+	pr, _, err := r.client.PullRequests.Get(ctx, r.org, r.repo, prid)
+	return pr, err
+}
+
+func (r *repoClient) CreateIssueComment(ctx context.Context, issueID int, opts *github.IssueComment) error {
+	_, _, err := r.client.Issues.CreateComment(
+		ctx,
+		r.org,
+		r.repo,
+		issueID,
+		opts)
+	return err
 }
 
 type githubClientSource interface {
@@ -480,17 +578,17 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		return nil, fmt.Errorf("failed creating new check run, %w", err)
 	}
 
-	repo := &github.Repository{
-		Owner: &github.User{
-			Login: github.String(cr.orgName),
-		},
-		Name: github.String(cr.repoName),
-	}
+	/*
+		repo := &github.Repository{
+			Owner: &github.User{
+				Login: github.String(cr.orgName),
+			},
+			Name: github.String(cr.repoName),
+		}
+	*/
 
-	ghUpdateCheckRun(
+	ghClient.StatusUpdate(
 		context.Background(),
-		ghClient.Checks,
-		repo,
 		*newCR.ID,
 		"Workflow Setup",
 		"Creating workflow",
@@ -760,16 +858,14 @@ func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {
 
 func (ws *workflowSyncer) getFile(
 	ctx context.Context,
-	ghClient *github.Client,
+	ghClient *repoClient,
 	owner string,
 	name string,
 	sha string,
 	filename string) (io.ReadCloser, error) {
 
-	file, err := ghClient.Repositories.DownloadContents(
+	file, err := ghClient.DownloadContents(
 		ctx,
-		owner,
-		name,
 		filename,
 		&github.RepositoryContentGetOptions{
 			Ref: sha,
@@ -787,7 +883,7 @@ func (ws *workflowSyncer) getFile(
 
 func (ws *workflowSyncer) getWorkflow(
 	ctx context.Context,
-	ghClient *github.Client,
+	ghClient *repoClient,
 	repo *github.Repository,
 	sha string,
 	filename string) (*workflow.Workflow, error) {

@@ -2,19 +2,59 @@ package main
 
 import (
 	"context"
+	"log"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/google/go-github/v32/github"
 )
 
 type checkRunUpdateRecorder struct {
+	org     string
+	repo    string
 	updates []github.UpdateCheckRunOptions
 }
 
 func (crr *checkRunUpdateRecorder) UpdateCheckRun(ctx context.Context, owner, repo string, checkRunID int64, opts github.UpdateCheckRunOptions) (*github.CheckRun, *github.Response, error) {
 	crr.updates = append(crr.updates, opts)
 	return nil, nil, nil
+}
+
+func (crr *checkRunUpdateRecorder) StatusUpdate(
+	ctx context.Context,
+	crID int64,
+	title string,
+	msg string,
+	status string,
+	conclusion string,
+) {
+	log.Print(msg)
+	opts := github.UpdateCheckRunOptions{
+		Name:   checkRunName,
+		Status: &status,
+		Output: &github.CheckRunOutput{
+			Title:   &title,
+			Summary: &msg,
+		},
+	}
+
+	if conclusion != "" {
+		opts.Conclusion = &conclusion
+		opts.CompletedAt = &github.Timestamp{
+			Time: time.Now(),
+		}
+	}
+	_, _, err := crr.UpdateCheckRun(
+		ctx,
+		crr.org,
+		crr.repo,
+		crID,
+		opts)
+
+	if err != nil {
+		log.Printf("Update of aborted check run failed, %v", err)
+	}
 }
 
 func TestPolicy(t *testing.T) {
