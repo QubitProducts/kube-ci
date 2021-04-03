@@ -83,7 +83,7 @@ type githubKeyStore struct {
 	orgs          *regexp.Regexp
 }
 
-func (ks *githubKeyStore) getClient(org string, installID int, repo, owner string) (*repoClient, error) {
+func (ks *githubKeyStore) getClient(org string, installID int, repo string) (*repoClient, error) {
 	validID := false
 	for _, id := range ks.ids {
 		if installID == id {
@@ -115,12 +115,11 @@ func (ks *githubKeyStore) getClient(org string, installID int, repo, owner strin
 		org:       org,
 		client:    ghc,
 		repo:      repo,
-		owner:     owner,
 	}, nil
 }
 
 type githubClientSource interface {
-	getClient(org string, installID int, repo, owner string) (*repoClient, error)
+	getClient(org string, installID int, repo string) (*repoClient, error)
 }
 
 // CacheSpec lets you choose the default settings for a
@@ -223,7 +222,7 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName, "OWNER")
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
 	if err != nil {
 		return
 	}
@@ -403,7 +402,7 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName, "OWNER")
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName)
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +472,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		return nil
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName, "OWNER")
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName)
 	if err != nil {
 		return err
 	}
@@ -602,7 +601,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 		allAnns = append(allAnns, anns...)
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName, "OWNER")
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
 	if err != nil {
 		return
 	}

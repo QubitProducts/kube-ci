@@ -46,7 +46,7 @@ func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github
 	org := event.GetRepo().GetOwner().Login
 	repo := event.GetRepo().GetName()
 
-	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo, "OWNER")
+	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo)
 	if err != nil {
 		log.Printf("error creating github client, %v", err)
 		return http.StatusBadRequest, "failed to create github client"

@@ -47,7 +47,7 @@ func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.D
 	org := event.GetRepo().GetOwner().Login
 	repo := event.GetRepo().GetName()
 
-	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo, "OWNER")
+	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, "failed to create github client"
 	}
@@ -111,7 +111,7 @@ func (ws *workflowSyncer) webhookDeploymentStatus(ctx context.Context, event *gi
 func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
 	owner := event.Repo.Owner.GetLogin()
 	repo := event.Repo.GetName()
-	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID), repo, owner)
+	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -148,7 +148,7 @@ func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.Cr
 func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
 	org := *event.Org.Login
 	repo := event.Repo.GetName()
-	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID), org, repo)
+	ghClient, err := ws.ghClientSrc.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -173,8 +173,8 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 
 func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
 	repo := *event.Repo.Name
-	owner := event.Repo.Owner.GetName()
-	ghClient, err := ws.ghClientSrc.getClient(*event.Org.Login, int(*event.Installation.ID), repo, owner)
+	org := event.Repo.Owner.GetName()
+	ghClient, err := ws.ghClientSrc.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}

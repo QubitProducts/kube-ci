@@ -13,7 +13,6 @@ type repoClient struct {
 	installID int
 	org       string
 	repo      string
-	owner     string
 
 	client *github.Client
 }
@@ -25,7 +24,7 @@ func (r *repoClient) GetInstallID() int {
 func (r *repoClient) GetRef(ctx context.Context, ref string) (*github.Reference, error) {
 	gref, _, err := r.client.Git.GetRef(
 		ctx,
-		r.owner,
+		r.org,
 		r.repo,
 		ref,
 	)
