@@ -268,7 +268,10 @@ func main() {
 		runner:  wfSyncer,
 		clients: ghSrc,
 		pvcs:    wfSyncer,
-		uiBase:  *argoUIBaseURL,
+
+		uiBase:   *argoUIBaseURL,
+		appID:    *appID,
+		ghSecret: secret,
 	}
 
 	mux.HandleFunc("/webhooks/github",
