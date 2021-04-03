@@ -5,16 +5,69 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v32/github"
 )
 
-func (ws *workflowSyncer) webhookDeleteBranchEvent(ctx context.Context, event *github.DeleteEvent) (int, string) {
+type workflowRunner interface {
+	runWorkflow(ctx context.Context, ghClient *repoClient, repo *github.Repository, headsha, headreftype, headbranch string, prs []*github.PullRequest, updater StatusUpdater) error
+}
+
+type pvcManager interface {
+	deletePVC(org, repo, branch, action string) error
+}
+
+type slashRunner interface {
+	slashCommand(ctx context.Context, client *repoClient, event *github.IssueCommentEvent) error
+}
+
+type hookHandler struct {
+	pvcs    pvcManager
+	clients githubClientSource
+	runner  workflowRunner
+	slash   slashRunner
+
+	uiBase   string
+	ghSecret []byte
+	appID    int64
+}
+
+func (h *hookHandler) webhookIssueComment(ctx context.Context, event *github.IssueCommentEvent) (int, string) {
+	if *event.Action != "created" {
+		return http.StatusOK, ""
+	}
+
+	cmdparts := strings.SplitN(strings.TrimSpace(*event.Comment.Body), " ", 3)
+
+	rootCmd := "/kube-ci"
+	if len(cmdparts) < 1 || cmdparts[0] != rootCmd {
+		return http.StatusOK, ""
+	}
+
+	org := event.GetRepo().GetOwner().Login
+	repo := event.GetRepo().GetName()
+
+	client, err := h.clients.getClient(*org, int(*event.Installation.ID), repo)
+	if err != nil {
+		log.Printf("error creating github client, %v", err)
+		return http.StatusBadRequest, "failed to create github client"
+	}
+
+	err = h.slash.slashCommand(ctx, client, event)
+	if err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+
+	return http.StatusOK, "ok"
+}
+
+func (h *hookHandler) webhookDeleteBranchEvent(ctx context.Context, event *github.DeleteEvent) (int, string) {
 	org := *event.GetRepo().GetOwner().Login
 	repo := *event.Repo.Name
 	branch := event.GetRef()
-	err := ws.deletePVC(
+	err := h.pvcs.deletePVC(
 		org,
 		repo,
 		branch,
@@ -26,10 +79,10 @@ func (ws *workflowSyncer) webhookDeleteBranchEvent(ctx context.Context, event *g
 	return http.StatusOK, "OK"
 }
 
-func (ws *workflowSyncer) webhookRepositoryDeleteEvent(ctx context.Context, event *github.RepositoryEvent) (int, string) {
+func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *github.RepositoryEvent) (int, string) {
 	org := *event.GetRepo().GetOwner().Login
 	repo := *event.Repo.Name
-	err := ws.deletePVC(
+	err := h.pvcs.deletePVC(
 		org,
 		repo,
 		"",
@@ -43,11 +96,11 @@ func (ws *workflowSyncer) webhookRepositoryDeleteEvent(ctx context.Context, even
 	return http.StatusOK, "OK"
 }
 
-func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
+func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
 	org := event.GetRepo().GetOwner().Login
 	repo := event.GetRepo().GetName()
 
-	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo)
+	ghClient, err := h.clients.getClient(*org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, "failed to create github client"
 	}
@@ -64,7 +117,7 @@ func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.D
 
 	logURL := fmt.Sprintf(
 		"%s/workflows/%s/%s",
-		ws.argoUIBase,
+		h.uiBase,
 		"blah",
 		"blah")
 
@@ -103,15 +156,15 @@ func (ws *workflowSyncer) webhookDeployment(ctx context.Context, event *github.D
 	return http.StatusOK, ""
 }
 
-func (ws *workflowSyncer) webhookDeploymentStatus(ctx context.Context, event *github.DeploymentStatusEvent) (int, string) {
+func (h *hookHandler) webhookDeploymentStatus(ctx context.Context, event *github.DeploymentStatusEvent) (int, string) {
 	log.Printf("status: %v is %v", *event.DeploymentStatus.ID, *event.DeploymentStatus.State)
 	return http.StatusOK, ""
 }
 
-func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
+func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
 	owner := event.Repo.Owner.GetLogin()
 	repo := event.Repo.GetName()
-	ghClient, err := ws.ghClientSrc.getClient(owner, int(*event.Installation.ID), repo)
+	ghClient, err := h.clients.getClient(owner, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -127,7 +180,7 @@ func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.Cr
 
 	headSHA := ref.Object.GetSHA()
 
-	err = ws.runWorkflow(
+	err = h.runner.runWorkflow(
 		ctx,
 		ghClient,
 		event.Repo,
@@ -145,15 +198,15 @@ func (ws *workflowSyncer) webhookCreateTag(ctx context.Context, event *github.Cr
 	return http.StatusOK, ""
 }
 
-func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
+func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
 	org := *event.Org.Login
 	repo := event.Repo.GetName()
-	ghClient, err := ws.ghClientSrc.getClient(org, int(*event.Installation.ID), repo)
+	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
 
-	err = ws.runWorkflow(
+	err = h.runner.runWorkflow(
 		ctx,
 		ghClient,
 		event.Repo,
@@ -171,10 +224,10 @@ func (ws *workflowSyncer) webhookCheckSuite(ctx context.Context, event *github.C
 	return http.StatusOK, ""
 }
 
-func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
+func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
 	repo := *event.Repo.Name
 	org := event.Repo.Owner.GetName()
-	ghClient, err := ws.ghClientSrc.getClient(org, int(*event.Installation.ID), repo)
+	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -224,16 +277,16 @@ func (ws *workflowSyncer) webhookCheckRunRequestAction(ctx context.Context, even
 	return http.StatusOK, "blah"
 }
 
-func (ws *workflowSyncer) loggingWebhook(w http.ResponseWriter, r *http.Request) (int, string) {
-	status, msg := ws.webhook(w, r)
+func (h *hookHandler) loggingWebhook(w http.ResponseWriter, r *http.Request) (int, string) {
+	status, msg := h.webhook(w, r)
 	if status != 0 && status != http.StatusOK {
 		log.Printf("error returned from webhook, %d: %s", status, msg)
 	}
 	return status, msg
 }
 
-func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
-	payload, err := github.ValidatePayload(r, ws.ghSecret)
+func (h *hookHandler) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
+	payload, err := github.ValidatePayload(r, h.ghSecret)
 	if err != nil {
 		return http.StatusBadRequest, "request did not validate"
 	}
@@ -267,14 +320,14 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 	switch event := rawEvent.(type) {
 
 	case *github.CheckSuiteEvent:
-		if event.GetCheckSuite().GetApp().GetID() != ws.appID {
+		if event.GetCheckSuite().GetApp().GetID() != h.appID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
 		// TODO: HeadBranch is not set for all events, need to understand why
 		// log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "requested", "rerequested":
-			return ws.webhookCheckSuite(ctx, event)
+			return h.webhookCheckSuite(ctx, event)
 		case "completed":
 			return http.StatusOK, "OK"
 		default:
@@ -285,13 +338,13 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 	case *github.CreateEvent:
 		switch event.GetRefType() {
 		case "tag":
-			return ws.webhookCreateTag(ctx, event)
+			return h.webhookCreateTag(ctx, event)
 		default:
 			return http.StatusOK, "OK"
 		}
 
 	case *github.CheckRunEvent:
-		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != ws.appID {
+		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != h.appID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
 		// TODO: HeadBranch is not set for all events, need to understand why
@@ -305,9 +358,9 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 				Installation: event.Installation,
 				Action:       event.Action,
 			}
-			return ws.webhookCheckSuite(ctx, ev)
+			return h.webhookCheckSuite(ctx, ev)
 		case "requested_action":
-			return ws.webhookCheckRunRequestAction(ctx, event)
+			return h.webhookCheckRunRequestAction(ctx, event)
 		case "created", "completed":
 			return http.StatusOK, "OK"
 		default:
@@ -316,24 +369,24 @@ func (ws *workflowSyncer) webhook(w http.ResponseWriter, r *http.Request) (int, 
 		}
 
 	case *github.DeploymentEvent:
-		return ws.webhookDeployment(ctx, event)
+		return h.webhookDeployment(ctx, event)
 
 	case *github.DeploymentStatusEvent:
-		return ws.webhookDeploymentStatus(ctx, event)
+		return h.webhookDeploymentStatus(ctx, event)
 
 	case *github.IssueCommentEvent:
-		return ws.webhookIssueComment(ctx, event)
+		return h.webhookIssueComment(ctx, event)
 
 	case *github.DeleteEvent:
 		if event.GetRefType() != "branch" {
 			return http.StatusOK, fmt.Sprintf("ignore %s delete event", event.GetRefType())
 		}
-		return ws.webhookDeleteBranchEvent(ctx, event)
+		return h.webhookDeleteBranchEvent(ctx, event)
 
 	case *github.RepositoryEvent:
 		switch event.GetAction() {
 		case "archived", "deleted":
-			return ws.webhookRepositoryDeleteEvent(ctx, event)
+			return h.webhookRepositoryDeleteEvent(ctx, event)
 		default:
 			return http.StatusOK, fmt.Sprintf("ignore repo %s event", event.GetAction())
 		}

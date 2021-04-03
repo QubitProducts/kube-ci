@@ -62,6 +62,9 @@ func TestWebhookDeleteBranchEvent(t *testing.T) {
 	ws := &workflowSyncer{
 		kubeclient: client,
 	}
+	hh := &hookHandler{
+		pvcs: ws,
+	}
 
 	ev := &github.DeleteEvent{
 		Ref:     github.String("mybranch"),
@@ -74,7 +77,7 @@ func TestWebhookDeleteBranchEvent(t *testing.T) {
 		},
 	}
 
-	_, status := ws.webhookDeleteBranchEvent(ctx, ev)
+	_, status := hh.webhookDeleteBranchEvent(ctx, ev)
 	if status != "OK" {
 		t.Fatalf("unexpected status, %v", status)
 		return
@@ -121,6 +124,9 @@ func TestWebhookRepositoryDeleteEvent(t *testing.T) {
 	ws := &workflowSyncer{
 		kubeclient: client,
 	}
+	hh := hookHandler{
+		pvcs: ws,
+	}
 
 	ev := &github.RepositoryEvent{
 		Action: github.String("deleted"),
@@ -132,7 +138,7 @@ func TestWebhookRepositoryDeleteEvent(t *testing.T) {
 		},
 	}
 
-	_, status := ws.webhookRepositoryDeleteEvent(ctx, ev)
+	_, status := hh.webhookRepositoryDeleteEvent(ctx, ev)
 	if status != "OK" {
 		t.Fatalf("unexpected status, %v", status)
 		return

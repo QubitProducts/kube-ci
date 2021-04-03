@@ -28,80 +28,15 @@ import (
 	"github.com/google/go-github/v32/github"
 	"github.com/mattn/go-shellwords"
 	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
-func (ws *workflowSyncer) webhookIssueComment(ctx context.Context, event *github.IssueCommentEvent) (int, string) {
-	if *event.Action != "created" {
-		return http.StatusOK, ""
-	}
-
-	cmdparts := strings.SplitN(strings.TrimSpace(*event.Comment.Body), " ", 3)
-
-	rootCmd := "/kube-ci"
-	if len(cmdparts) < 1 || cmdparts[0] != rootCmd {
-		return http.StatusOK, ""
-	}
-
-	org := event.GetRepo().GetOwner().Login
-	repo := event.GetRepo().GetName()
-
-	ghClient, err := ws.ghClientSrc.getClient(*org, int(*event.Installation.ID), repo)
-	if err != nil {
-		log.Printf("error creating github client, %v", err)
-		return http.StatusBadRequest, "failed to create github client"
-	}
-
-	user := event.Comment.GetUser()
-	ok, err := ghClient.IsMember(ctx, user.GetLogin())
-	if err != nil {
-		log.Printf("error querying github membership, %v", err)
-		return http.StatusBadRequest, "failed to check org membership"
-	}
-	if !ok {
-		ws.slashComment(ctx, ghClient, event, "you must be an organisation member to execute commands")
-		return http.StatusOK, "ok"
-	}
-
-	if len(cmdparts) == 1 {
-		ws.slashUnknown(ctx, ghClient, event)
-		return http.StatusOK, ""
-	}
-
-	cmd := cmdparts[1]
-
-	var args []string
-	if len(cmdparts) > 2 {
-		args, err = shellwords.Parse(cmdparts[2])
-		if err != nil {
-			return http.StatusOK, ""
-		}
-	}
-
-	type slashCommand func(ctx context.Context, ghc *repoClient, event *github.IssueCommentEvent, args ...string) error
-	handlers := map[string]slashCommand{
-		"run":    ws.slashRun,
-		"deploy": ws.slashDeploy,
-		"setup":  ws.slashSetup,
-	}
-
-	f, ok := handlers[cmd]
-
-	if !ok {
-		ws.slashUnknown(ctx, ghClient, event, cmd)
-		return http.StatusOK, ""
-	}
-
-	err = f(ctx, ghClient, event, args...)
-	if err != nil {
-		log.Printf("slash command failed, %v", err)
-		return http.StatusBadRequest, err.Error()
-	}
-
-	return http.StatusOK, ""
+type slashHandler struct {
+	runner     workflowRunner
+	ciFilePath string
+	templates  TemplateSet
 }
 
-func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, body string) error {
+func (s *slashHandler) slashComment(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, body string) error {
 	err := ghClient.CreateIssueComment(
 		ctx,
 		int(*event.Issue.Number),
@@ -117,7 +52,7 @@ func (ws *workflowSyncer) slashComment(ctx context.Context, ghClient *repoClient
 	return nil
 }
 
-func (ws *workflowSyncer) slashUnknown(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
+func (s *slashHandler) slashUnknown(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	body := `
 known command:
 - *run*: run the workflow onthe current branch (only valid for PRs)
@@ -126,47 +61,26 @@ known command:
 `
 
 	keys := []string{}
-	for name := range ws.config.TemplateSet {
+	for name := range s.templates {
 		keys = append(keys, name)
 	}
 	sort.Strings(keys)
 	for _, name := range keys {
-		t := ws.config.TemplateSet[name]
+		t := s.templates[name]
 		body += fmt.Sprintf("  - *%s*: %s\n", name, t.Description)
 	}
 	body = strings.TrimSpace(body)
 
-	return ws.slashComment(ctx, ghClient, event, body)
+	return s.slashComment(ctx, ghClient, event, body)
 }
 
-func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
-	// We'll cancel all in-progress checks for this
-	// repo/branch
-	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
-		map[string]string{
-			labelOrg:    org,
-			labelRepo:   repo,
-			labelBranch: branch,
-		}).AsSelector())
-
-	for _, wf := range wfs {
-		wf = wf.DeepCopy()
-		ads := int64(0)
-		wf.Spec.ActiveDeadlineSeconds = &ads
-		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
-	}
-	if err != nil {
-		log.Printf("failed clearing existing workflows, %v", err)
-	}
-}
-
-func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
+func (s *slashHandler) slashRun(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	prlinks := event.GetIssue().GetPullRequestLinks()
 	if prlinks == nil {
 		body := strings.TrimSpace(`
     run is only valid on PR comments
 	`)
-		return ws.slashComment(ctx, ghClient, event, body)
+		return s.slashComment(ctx, ghClient, event, body)
 	}
 
 	parts := strings.Split(prlinks.GetURL(), "/")
@@ -182,7 +96,7 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *repoClient, ev
 
 	headsha := pr.GetHead().GetSHA()
 	headref := pr.GetHead().GetRef()
-	return ws.runWorkflow(
+	return s.runner.runWorkflow(
 		ctx,
 		ghClient,
 		event.Repo,
@@ -194,9 +108,9 @@ func (ws *workflowSyncer) slashRun(ctx context.Context, ghClient *repoClient, ev
 	)
 }
 
-func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
+func (s *slashHandler) slashDeploy(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) > 1 {
-		return ws.slashComment(ctx, ghClient, event, "please specify one environment")
+		return s.slashComment(ctx, ghClient, event, "please specify one environment")
 	}
 
 	env := "staging"
@@ -204,7 +118,7 @@ func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *repoClient,
 		env = args[0]
 	}
 
-	_, sha, err := ws.issueHead(ctx, ghClient, event)
+	_, sha, err := s.issueHead(ctx, ghClient, event)
 	if err != nil {
 		return errors.Wrap(err, "cannot setup ci for repository")
 	}
@@ -228,25 +142,25 @@ func (ws *workflowSyncer) slashDeploy(ctx context.Context, ghClient *repoClient,
 	return nil
 }
 
-func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
+func (s *slashHandler) slashSetup(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) != 1 {
-		ws.slashComment(ctx, ghClient, event, "you mest specify a template")
+		s.slashComment(ctx, ghClient, event, "you mest specify a template")
 		return nil
 	}
 
-	tmpl, ok := ws.config.TemplateSet[args[0]]
+	tmpl, ok := s.templates[args[0]]
 	if !ok {
-		ws.slashComment(ctx, ghClient, event, "unknown template "+args[0])
+		s.slashComment(ctx, ghClient, event, "unknown template "+args[0])
 		return nil
 	}
 
-	branch, sha, err := ws.issueHead(ctx, ghClient, event)
+	branch, sha, err := s.issueHead(ctx, ghClient, event)
 	if err != nil {
-		ws.slashComment(ctx, ghClient, event, "blah")
+		s.slashComment(ctx, ghClient, event, "blah")
 		return errors.Wrap(err, "cannot setup ci for repository")
 	}
 
-	fileName := ws.config.CIFilePath
+	fileName := s.ciFilePath
 
 	path := filepath.Dir(fileName)
 	files, err := ghClient.GetContents(
@@ -281,7 +195,7 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *repoClient, 
 
 	bs, err := ioutil.ReadFile(tmpl.CI)
 	if err != nil {
-		ws.slashComment(ctx, ghClient, event, fmt.Sprintf("couldn't read template file %s, ci server config is broken!", fileName))
+		s.slashComment(ctx, ghClient, event, fmt.Sprintf("couldn't read template file %s, ci server config is broken!", fileName))
 		return nil
 	}
 
@@ -304,7 +218,7 @@ func (ws *workflowSyncer) slashSetup(ctx context.Context, ghClient *repoClient, 
 	return nil
 }
 
-func (ws *workflowSyncer) issueHead(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent) (string, string, error) {
+func (s *slashHandler) issueHead(ctx context.Context, ghClient *repoClient, event *github.IssueCommentEvent) (string, string, error) {
 	if event.Issue.PullRequestLinks == nil {
 		branch, err := ghClient.GetBranch(
 			ctx,
@@ -334,4 +248,56 @@ func (ws *workflowSyncer) issueHead(ctx context.Context, ghClient *repoClient, e
 	}
 
 	return *pr.Head.Ref, *pr.Head.SHA, nil
+}
+
+func (s *slashHandler) slashCommand(ctx context.Context, client *repoClient, event *github.IssueCommentEvent) error {
+	cmdparts := strings.SplitN(strings.TrimSpace(*event.Comment.Body), " ", 3)
+	user := event.Comment.GetUser()
+
+	ok, err := client.IsMember(ctx, user.GetLogin())
+	if err != nil {
+		log.Printf("error querying github membership, %v", err)
+		return fmt.Errorf("failed to check org membership")
+	}
+	if !ok {
+		s.slashComment(ctx, client, event, "you must be an organisation member to execute commands")
+		return nil
+	}
+
+	if len(cmdparts) == 1 {
+		s.slashUnknown(ctx, client, event)
+		return nil
+	}
+
+	cmd := cmdparts[1]
+
+	var args []string
+	if len(cmdparts) > 2 {
+		args, err = shellwords.Parse(cmdparts[2])
+		if err != nil {
+			return nil
+		}
+	}
+
+	type slashCommand func(ctx context.Context, ghc *repoClient, event *github.IssueCommentEvent, args ...string) error
+	handlers := map[string]slashCommand{
+		"run":    s.slashRun,
+		"deploy": s.slashDeploy,
+		"setup":  s.slashSetup,
+	}
+
+	f, ok := handlers[cmd]
+
+	if !ok {
+		s.slashUnknown(ctx, client, event, cmd)
+		return nil
+	}
+
+	err = f(ctx, client, event, args...)
+	if err != nil {
+		log.Printf("slash command failed, %v", err)
+		return err
+	}
+
+	return nil
 }

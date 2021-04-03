@@ -10,7 +10,29 @@ import (
 
 	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v32/github"
+	"k8s.io/apimachinery/pkg/labels"
 )
+
+func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
+	// We'll cancel all in-progress checks for this
+	// repo/branch
+	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
+		map[string]string{
+			labelOrg:    org,
+			labelRepo:   repo,
+			labelBranch: branch,
+		}).AsSelector())
+
+	for _, wf := range wfs {
+		wf = wf.DeepCopy()
+		ads := int64(0)
+		wf.Spec.ActiveDeadlineSeconds = &ads
+		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
+	}
+	if err != nil {
+		log.Printf("failed clearing existing workflows, %v", err)
+	}
+}
 
 func wfName(prefix, owner, repo, branch string) string {
 	timeStr := strconv.Itoa(int(time.Now().Unix()))

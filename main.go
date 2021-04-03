@@ -245,10 +245,24 @@ func main() {
 			duration,
 			http.HandlerFunc(rootHandler)))
 
+	slashHandler := &slashHandler{
+		ciFilePath: wfconfig.CIFilePath,
+		templates:  wfconfig.TemplateSet,
+		runner:     wfSyncer,
+	}
+
+	hookHandler := &hookHandler{
+		slash:   slashHandler,
+		runner:  wfSyncer,
+		clients: ghSrc,
+		pvcs:    wfSyncer,
+		uiBase:  *argoUIBaseURL,
+	}
+
 	mux.HandleFunc("/webhooks/github",
 		promhttp.InstrumentHandlerDuration(
 			duration,
-			httpErrorFunc(wfSyncer.loggingWebhook)))
+			httpErrorFunc(hookHandler.loggingWebhook)))
 
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/status", sh)
