@@ -141,6 +141,20 @@ type TemplateSpec struct {
 // TemplateSet describes a set of templates
 type TemplateSet map[string]TemplateSpec
 
+func (ts TemplateSet) Help() string {
+	keys := []string{}
+	for name := range ts {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+	body := ""
+	for _, name := range keys {
+		t := ts[name]
+		body += fmt.Sprintf("- *%s*: %s\n", name, t.Description)
+	}
+	return body
+}
+
 // Config defines our configuration file format
 type Config struct {
 	CIFilePath    string            `yaml:"ciFilePath"`
