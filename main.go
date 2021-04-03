@@ -254,8 +254,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("couldn't setup slack, %v", err)
 		}
-		mux.Handle("/webhooks/slack", slack)
-		mux.Handle("/webhooks/slack/", slack)
+		mux.Handle("/webhooks/slack/cmd", slack)
 	}
 
 	slashHandler := &slashHandler{

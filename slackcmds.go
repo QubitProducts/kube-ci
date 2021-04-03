@@ -54,7 +54,16 @@ func (scs *slackCmds) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch s.Command {
-	case "/echo":
+	case "/build":
+		params := &slack.Msg{Text: s.Text}
+		b, err := json.Marshal(params)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(b)
+	case "/deploy":
 		params := &slack.Msg{Text: s.Text}
 		b, err := json.Marshal(params)
 		if err != nil {
