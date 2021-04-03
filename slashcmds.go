@@ -103,6 +103,7 @@ func (s *slashHandler) slashRun(ctx context.Context, ghClient *repoClient, event
 		headsha,
 		"branch",
 		headref,
+		"",
 		[]*github.PullRequest{pr},
 		ghClient,
 	)

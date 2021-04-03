@@ -324,7 +324,7 @@ type StatusUpdater interface {
 	)
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient, repo *github.Repository, headsha, headreftype, headbranch string, prs []*github.PullRequest, updater StatusUpdater) error {
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
 	wf, err := ws.getWorkflow(
@@ -393,6 +393,34 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 		)
 		log.Printf("unable to parse workflow for %s (%s), %v", repo, headbranch, err)
 		return nil
+	}
+
+	if entrypoint != "" {
+		found := false
+		for _, t := range wf.Spec.Templates {
+			if t.Name == entrypoint {
+				found = true
+			}
+		}
+		if !found {
+			log.Printf("not running %s/%s (%s), no template for entrypoint %s found",
+				org,
+				name,
+				headsha,
+				entrypoint,
+			)
+			err := fmt.Errorf("no entrypoing %q found in workflow templates", entrypoint)
+			updater.StatusUpdate(
+				ctx,
+				*cr.ID,
+				title,
+				err.Error(),
+				"completed",
+				"failure",
+			)
+			return err
+		}
+		wf.Spec.Entrypoint = entrypoint
 	}
 
 	if !ws.policy(ctx, ghClient, repo, headbranch, title, prs, *cr.ID) {
