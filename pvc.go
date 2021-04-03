@@ -1,13 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net/http"
 
 	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
-	"github.com/google/go-github/v32/github"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	k8errors "k8s.io/apimachinery/pkg/api/errors"
@@ -138,39 +135,6 @@ func (ws *workflowSyncer) ensurePVC(
 	})
 
 	return nil
-}
-
-func (ws *workflowSyncer) webhookDeleteBranchEvent(ctx context.Context, event *github.DeleteEvent) (int, string) {
-	org := *event.GetRepo().GetOwner().Login
-	repo := *event.Repo.Name
-	branch := event.GetRef()
-	err := ws.deletePVC(
-		org,
-		repo,
-		branch,
-		"deleted branch "+branch,
-	)
-	if err != nil {
-		log.Printf("failed to delete pvcs for delete branch %s in %s/%s, %v", org, repo, branch, err)
-	}
-	return http.StatusOK, "OK"
-}
-
-func (ws *workflowSyncer) webhookRepositoryDeleteEvent(ctx context.Context, event *github.RepositoryEvent) (int, string) {
-	org := *event.GetRepo().GetOwner().Login
-	repo := *event.Repo.Name
-	err := ws.deletePVC(
-		org,
-		repo,
-		"",
-		event.GetAction()+" repository",
-	)
-
-	if err != nil {
-		log.Printf("failed to delete pvcs for %s repo %s/%s, %v", event.GetAction(), org, repo, err)
-	}
-
-	return http.StatusOK, "OK"
 }
 
 // when a branch or repo gets deleted (or archived), we delete any pvc
