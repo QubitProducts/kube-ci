@@ -92,8 +92,12 @@ func main() {
 	secretfile := flag.String("secretfile", "webhook-secret", "file containing your webhook secret")
 	appID := flag.Int64("github.appid", 0, "github application ID")
 	idsfile := flag.String("idsfile", "", "file containing newline delimited list of install-ids to accept events from, if not provided, or empty, all intall-ids are accepted")
+
 	orgs := flag.String("orgs", "", "regex of orgs to accept events from, start and end anchors will be added")
 	argoUIBaseURL := flag.String("argo.ui.base", "http://argo", "file containing your webhook secret")
+
+	slackTokenFile := flag.String("slack.tokenfile", "", "slack token store in this file")
+	slackSigningSecretFile := flag.String("slack.secretfile", "", "slack signing secret")
 
 	flag.Parse()
 
@@ -244,6 +248,15 @@ func main() {
 		promhttp.InstrumentHandlerDuration(
 			duration,
 			http.HandlerFunc(rootHandler)))
+
+	if *slackTokenFile != "" {
+		slack, err := newSlack(*slackTokenFile, *slackSigningSecretFile)
+		if err != nil {
+			log.Fatalf("couldn't setup slack, %v", err)
+		}
+		mux.Handle("/webhooks/slack", slack)
+		mux.Handle("/webhooks/slack/", slack)
+	}
 
 	slashHandler := &slashHandler{
 		ciFilePath: wfconfig.CIFilePath,

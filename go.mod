@@ -13,11 +13,13 @@ require (
 	github.com/gorilla/websocket v1.4.2
 	github.com/mattn/go-shellwords v1.0.5
 	github.com/mreiferson/go-options v1.0.0 // indirect
+	github.com/nlopes/slack v0.6.0 // indirect
 	github.com/opentracing-contrib/go-stdlib v0.0.0-20190519235532-cf7a6c988dc9
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.0.0
 	github.com/pusher/oauth2_proxy v1.1.2-0.20200308153134-e3fb25efe6c5
+	github.com/slack-go/slack v0.8.2 // indirect
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a // indirect
 	gopkg.in/yaml.v2 v2.2.8
 	honnef.co/go/tools v0.0.1-2020.1.6 // indirect
