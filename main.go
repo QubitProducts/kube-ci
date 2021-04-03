@@ -250,7 +250,7 @@ func main() {
 			http.HandlerFunc(rootHandler)))
 
 	if *slackTokenFile != "" {
-		slack, err := newSlack(*slackTokenFile, *slackSigningSecretFile)
+		slack, err := newSlack(*slackTokenFile, *slackSigningSecretFile, wfconfig.CIFilePath, wfconfig.TemplateSet)
 		if err != nil {
 			log.Fatalf("couldn't setup slack, %v", err)
 		}

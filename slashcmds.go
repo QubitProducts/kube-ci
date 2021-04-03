@@ -21,7 +21,6 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -60,14 +59,9 @@ known command:
 - *setup* TEMPLATENAME: add/replace the current workflow with the specified template
 `
 
-	keys := []string{}
-	for name := range s.templates {
-		keys = append(keys, name)
-	}
-	sort.Strings(keys)
-	for _, name := range keys {
-		t := s.templates[name]
-		body += fmt.Sprintf("  - *%s*: %s\n", name, t.Description)
+	tsHelp := strings.Split(s.templates.Help(), "\n")
+	for _, line := range tsHelp {
+		body += fmt.Sprintf("  %s\n", line)
 	}
 	body = strings.TrimSpace(body)
 
