@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,15 +13,60 @@ import (
 	"github.com/slack-go/slack"
 )
 
+type slackCheckRunMessage struct {
+	client *slack.Client
+	ch     string
+	ts     string
+
+	crID       int64
+	title      string
+	msg        string
+	status     string
+	conclusion string
+}
+
+func (scrm *slackCheckRunMessage) ToMessage() []slack.MsgOption {
+	return []slack.MsgOption{}
+}
+
+func (scrm *slackCheckRunMessage) StatusUpdate(
+	ctx context.Context,
+	crID int64,
+	title string,
+	msg string,
+	status string,
+	conclusion string,
+) {
+	scrm.crID = crID
+	scrm.title = title
+	scrm.msg = msg
+	scrm.status = status
+	scrm.conclusion = conclusion
+
+	opts := scrm.ToMessage()
+	scrm.client.UpdateMessage(scrm.ch, scrm.ts, opts...)
+}
+
 type slackCmds struct {
 	signingSecret string
 	client        *slack.Client
+	runner        workflowRunner
 
 	ciFilePath string
 	templates  TemplateSet
 }
 
-func (scs *slackCmds) setupCmd(org, repo string, args []string) *slack.Msg {
+func slackReply(w http.ResponseWriter, resp *slack.Msg) {
+	b, err := json.Marshal(resp)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(b)
+}
+
+func (scs *slackCmds) setupCmd(m slack.SlashCommand, org, repo string, args []string) *slack.Msg {
 	if len(args) > 2 {
 		msg := "bad wrguments: /ci-setup org/repo template [branch]"
 		return &slack.Msg{
@@ -43,6 +89,32 @@ func (scs *slackCmds) setupCmd(org, repo string, args []string) *slack.Msg {
 	return &slack.Msg{
 		Text: fmt.Sprintf("TODO push %s to %s/%s (branch: %s)", scs.ciFilePath, org, repo, branch),
 	}
+}
+
+func (scs *slackCmds) buildCmd(m slack.SlashCommand, org, repo string, args []string) *slack.Msg {
+	if len(args) > 2 {
+		msg := "bad wrguments: /ci-build org/repo [branch]"
+		return &slack.Msg{
+			Text: strings.Join(args, msg),
+		}
+	}
+
+	branch := "master"
+	if len(args) == 1 {
+		branch = args[0]
+	}
+
+	text := fmt.Sprintf("TODO push %s to %s/%s (branch: %s)", scs.ciFilePath, org, repo, branch)
+	ch, ts, err := scs.client.PostMessage(m.ChannelID, slack.MsgOptionText(text, false))
+	if err != nil {
+		return nil
+	}
+
+	go func() {
+	}()
+	scs.client.UpdateMessage(ch, ts, slack.MsgOptionText("something else", false))
+
+	return nil
 }
 
 func newSlack(tokenFile, signingSecretFile string, ciFilePath string, templates TemplateSet) (*slackCmds, error) {
@@ -72,7 +144,7 @@ func (scs *slackCmds) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = ioutil.NopCloser(io.TeeReader(r.Body, &verifier))
-	s, err := slack.SlashCommandParse(r)
+	m, err := slack.SlashCommandParse(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -84,7 +156,7 @@ func (scs *slackCmds) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var resp *slack.Msg
-	args, err := shellwords.Parse(s.Text)
+	args, err := shellwords.Parse(m.Text)
 	if err != nil {
 		slackReply(w, &slack.Msg{Text: err.Error()})
 		return
@@ -103,26 +175,19 @@ func (scs *slackCmds) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	org, repo := parts[0], parts[1]
 	args = args[1:]
 
-	switch s.Command {
+	switch m.Command {
 	case "/ci-setup":
-		resp = scs.setupCmd(org, repo, args)
+		resp = scs.setupCmd(m, org, repo, args)
 	case "/ci-build":
-		resp = &slack.Msg{Text: s.Text}
+		resp = scs.buildCmd(m, org, repo, args)
 	case "/ci-deploy":
-		resp = &slack.Msg{Text: s.Text}
+		resp = &slack.Msg{Text: m.Text}
 	default:
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	slackReply(w, resp)
-}
 
-func slackReply(w http.ResponseWriter, resp *slack.Msg) {
-	b, err := json.Marshal(resp)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	if resp != nil {
+		slackReply(w, resp)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(b)
 }
