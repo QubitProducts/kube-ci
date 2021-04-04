@@ -99,6 +99,12 @@ func main() {
 	slackTokenFile := flag.String("slack.tokenfile", "", "slack token store in this file")
 	slackSigningSecretFile := flag.String("slack.secretfile", "", "slack signing secret")
 
+	/*
+	  -client-id={{ lookup "oauth2-id" | quote }} \
+	  -client-secret={{ lookup "oauth2-secret" | quote }} \
+	  -cookie-secret={{ lookup "cookie-secret" | quote }} \
+	*/
+
 	flag.Parse()
 
 	if *appID == 0 {
