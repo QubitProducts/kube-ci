@@ -2,6 +2,7 @@ module github.com/QubitProducts/kube-ci
 
 require (
 	github.com/argoproj/argo v0.0.0-20201019203908-5eebce9af440 // v2.11.6
+	github.com/bitly/go-simplejson v0.5.0 // indirect
 	github.com/bradleyfalzon/ghinstallation v1.1.1
 	github.com/google/go-github/v29 v29.0.3 // indirect
 	github.com/google/go-github/v32 v32.1.0
