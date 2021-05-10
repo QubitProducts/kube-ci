@@ -11,6 +11,7 @@ import (
 )
 
 type checkRunUpdateRecorder struct {
+	t       *testing.T
 	org     string
 	repo    string
 	updates []github.UpdateCheckRunOptions
@@ -23,25 +24,21 @@ func (crr *checkRunUpdateRecorder) UpdateCheckRun(ctx context.Context, owner, re
 
 func (crr *checkRunUpdateRecorder) StatusUpdate(
 	ctx context.Context,
-	crID int64,
-	title string,
-	msg string,
-	status string,
-	conclusion string,
+	opts StatusUpdateOpts,
 ) {
-	log.Print(msg)
-	opts := github.UpdateCheckRunOptions{
+	crr.t.Logf("%#v", opts)
+	uopts := github.UpdateCheckRunOptions{
 		Name:   checkRunName,
-		Status: &status,
+		Status: &opts.status,
 		Output: &github.CheckRunOutput{
-			Title:   &title,
-			Summary: &msg,
+			Title:   &opts.title,
+			Summary: &opts.summary,
 		},
 	}
 
-	if conclusion != "" {
-		opts.Conclusion = &conclusion
-		opts.CompletedAt = &github.Timestamp{
+	if opts.conclusion != "" {
+		uopts.Conclusion = &opts.conclusion
+		uopts.CompletedAt = &github.Timestamp{
 			Time: time.Now(),
 		}
 	}
@@ -49,8 +46,8 @@ func (crr *checkRunUpdateRecorder) StatusUpdate(
 		ctx,
 		crr.org,
 		crr.repo,
-		crID,
-		opts)
+		opts.crID,
+		uopts)
 
 	if err != nil {
 		log.Printf("Update of aborted check run failed, %v", err)
@@ -161,7 +158,7 @@ func TestPolicy(t *testing.T) {
 	} {
 		st := st
 		ws := workflowSyncer{config: st.config}
-		crr := checkRunUpdateRecorder{}
+		crr := checkRunUpdateRecorder{t: t}
 
 		t.Run(st.testName, func(t *testing.T) {
 			ok := ws.policy(
