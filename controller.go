@@ -174,6 +174,7 @@ type workflowSyncer struct {
 	ghSecret []byte
 
 	ghClientSrc githubClientSource
+	updater     StatusUpdater
 
 	config     Config
 	kubeclient kubernetes.Interface
@@ -236,14 +237,9 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
-	rc, err := ws.ghClientSrc.getClient(cri.orgName, cri.instID, cri.repoName)
-	if err != nil {
-		return
-	}
-
 	status := "completed"
 	conclusion := "cancelled"
-	rc.StatusUpdate(
+	ws.updater.StatusUpdate(
 		context.Background(),
 		StatusUpdateOpts{
 			crID:       cri.checkRunID,
@@ -443,7 +439,7 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		}
 	*/
 
-	ghClient.StatusUpdate(
+	ws.updater.StatusUpdate(
 		context.Background(),
 		StatusUpdateOpts{
 			crID:    *newCR.ID,
@@ -482,12 +478,6 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	cr, err := crInfoFromWorkflow(wf)
 	if err != nil {
 		log.Printf("ignoring %s/%s, %v", wf.Namespace, wf.Name, err)
-		return nil
-	}
-
-	rc, err := ws.ghClientSrc.getClient(cr.orgName, cr.instID, cr.repoName)
-	if err != nil {
-		log.Printf("ignoring %s/%s, could not get repo client, %v", wf.Namespace, wf.Name, err)
 		return nil
 	}
 
@@ -550,7 +540,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		wf.Namespace,
 		wf.Name)
 
-	rc.StatusUpdate(
+	ws.updater.StatusUpdate(
 		context.Background(),
 		StatusUpdateOpts{
 			crID:       cr.checkRunID,
@@ -608,13 +598,8 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text string, wf *work
 				}
 		}
 	*/
-	rc, err := ws.ghClientSrc.getClient(cri.orgName, cri.instID, cri.repoName)
-	if err != nil {
-		log.Printf("ignoring %s/%s, could not get repo client, %v", wf.Namespace, wf.Name, err)
-		return
-	}
 
-	rc.StatusUpdate(
+	ws.updater.StatusUpdate(
 		context.Background(),
 		StatusUpdateOpts{
 			crID:    cri.checkRunID,
@@ -632,7 +617,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text string, wf *work
 		}
 		anns := allAnns[start:end]
 
-		rc.StatusUpdate(
+		ws.updater.StatusUpdate(
 			context.Background(),
 			StatusUpdateOpts{
 				crID:    cri.checkRunID,
