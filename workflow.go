@@ -345,7 +345,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 		return nil
 	}
 
-	if !runBranchOrTag(headreftype, wf) {
+	if wf != nil && !runBranchOrTag(headreftype, wf) {
 		log.Printf("not running %s/%s (%s) for reftype %s",
 			org,
 			name,
