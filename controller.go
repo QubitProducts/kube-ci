@@ -174,7 +174,6 @@ type workflowSyncer struct {
 	ghSecret []byte
 
 	ghClientSrc githubClientSource
-	updater     StatusUpdater
 
 	config     Config
 	kubeclient kubernetes.Interface
@@ -237,15 +236,22 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
+	if err != nil {
+		return
+	}
+
 	status := "completed"
 	conclusion := "cancelled"
-	ws.updater.StatusUpdate(
+	ghClient.UpdateCheckRun(
 		context.Background(),
-		StatusUpdateOpts{
-			crID:       cri.checkRunID,
-			status:     status,
-			conclusion: conclusion,
-			headSHA:    cri.headSHA,
+		cri.checkRunID,
+		github.UpdateCheckRunOptions{
+			Name:        cri.checkRunName,
+			HeadSHA:     &cri.headSHA,
+			Status:      &status,
+			Conclusion:  &conclusion,
+			CompletedAt: &github.Timestamp{Time: time.Now()},
 		},
 	)
 }
@@ -439,14 +445,13 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		}
 	*/
 
-	ws.updater.StatusUpdate(
+	ghClient.StatusUpdate(
 		context.Background(),
-		StatusUpdateOpts{
-			crID:    *newCR.ID,
-			title:   "Workflow Setup",
-			summary: "Creating workflow",
-			status:  "queued",
-		},
+		*newCR.ID,
+		"Workflow Setup",
+		"Creating workflow",
+		"queued",
+		"",
 	)
 
 	newWf.Annotations[annAnnotationsPublished] = "false"
@@ -481,13 +486,23 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		return nil
 	}
 
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName)
+	if err != nil {
+		return err
+	}
+
 	status := ""
 
 	failure := "failure"
 	success := "success"
 	neutral := "neutral"
 	cancelled := "cancelled"
-	var conclusion string
+	var conclusion *string
+
+	var completedAt *github.Timestamp
+	now := &github.Timestamp{
+		Time: time.Now(),
+	}
 
 	switch wf.Status.Phase {
 	case workflow.NodePending:
@@ -496,19 +511,23 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		status = "in_progress"
 	case workflow.NodeFailed:
 		status = "completed"
-		conclusion = failure
+		conclusion = &failure
 		if wf.Spec.ActiveDeadlineSeconds != nil && *wf.Spec.ActiveDeadlineSeconds == 0 {
-			conclusion = cancelled
+			conclusion = &cancelled
 		}
+		completedAt = now
 	case workflow.NodeError:
 		status = "completed"
-		conclusion = failure
+		conclusion = &failure
+		completedAt = now
 	case workflow.NodeSucceeded:
 		status = "completed"
-		conclusion = success
+		conclusion = &success
+		completedAt = now
 	case workflow.NodeSkipped:
 		status = "completed"
-		conclusion = neutral
+		conclusion = &neutral
+		completedAt = now
 	default:
 		log.Printf("ignoring %s/%s, unknown node phase %q", wf.Namespace, wf.Name, wf.Status.Phase)
 		return nil
@@ -540,21 +559,31 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		wf.Namespace,
 		wf.Name)
 
-	ws.updater.StatusUpdate(
+	_, err = ghClient.UpdateCheckRun(
 		context.Background(),
-		StatusUpdateOpts{
-			crID:       cr.checkRunID,
-			title:      title,
-			summary:    summary,
-			text:       text,
-			status:     status,
-			conclusion: conclusion,
-			url:        wfURL,
+		cr.checkRunID,
+		github.UpdateCheckRunOptions{
+			Name:        cr.checkRunName,
+			HeadSHA:     &cr.headSHA,
+			DetailsURL:  &wfURL,
+			Status:      &status,
+			Conclusion:  conclusion,
+			CompletedAt: completedAt,
+
+			Output: &github.CheckRunOutput{
+				Title:   &title,
+				Summary: &summary,
+				Text:    &text,
+			},
 		},
 	)
 
+	if err != nil {
+		log.Printf("Unable to update check run, %v", err)
+	}
+
 	if status == "completed" {
-		go ws.completeCheckRun(title, summary, text, wf, cr)
+		go ws.completeCheckRun(&title, &summary, &text, wf, cr)
 	}
 
 	return nil
@@ -562,7 +591,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 // completeCheckRun is used to publish any annotations found in the logs from a check run.
 // There are a bunch of reasons this could fail.
-func (ws *workflowSyncer) completeCheckRun(title, summary, text string, wf *workflow.Workflow, cri *crInfo) {
+func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *workflow.Workflow, cri *crInfo) {
 	if wf.Status.Phase != workflow.NodeFailed &&
 		wf.Status.Phase != workflow.NodeSucceeded {
 		return
@@ -586,6 +615,11 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text string, wf *work
 		allAnns = append(allAnns, anns...)
 	}
 
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
+	if err != nil {
+		return
+	}
+
 	var actions []*github.CheckRunAction
 	/*
 		if wf.Status.Phase == workflow.NodeSucceeded {
@@ -599,14 +633,18 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text string, wf *work
 		}
 	*/
 
-	ws.updater.StatusUpdate(
+	_, err = ghClient.UpdateCheckRun(
 		context.Background(),
-		StatusUpdateOpts{
-			crID:    cri.checkRunID,
-			headSHA: cri.headSHA,
-			actions: actions,
+		cri.checkRunID,
+		github.UpdateCheckRunOptions{
+			Name:    cri.checkRunName,
+			HeadSHA: &cri.headSHA,
+			Actions: actions,
 		},
 	)
+	if err != nil {
+		log.Printf("error, failed updating check run status, %v", err)
+	}
 
 	batchSize := 50 // github API allows 50 at a time
 	for i := 0; i < len(allAnns); i += batchSize {
@@ -616,18 +654,26 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text string, wf *work
 			end = len(allAnns)
 		}
 		anns := allAnns[start:end]
-
-		ws.updater.StatusUpdate(
+		_, err = ghClient.UpdateCheckRun(
 			context.Background(),
-			StatusUpdateOpts{
-				crID:    cri.checkRunID,
-				title:   title,
-				summary: summary,
-				text:    text,
-				anns:    anns,
-				actions: actions,
+			cri.checkRunID,
+			github.UpdateCheckRunOptions{
+				Name:    cri.checkRunName,
+				HeadSHA: &cri.headSHA,
+
+				Output: &github.CheckRunOutput{
+					Title:       title,
+					Summary:     summary,
+					Text:        text,
+					Annotations: anns,
+				},
+				Actions: actions,
 			},
 		)
+		if err != nil {
+			log.Printf("upload annotations for %s/%s failed, %v", wf.Namespace, wf.Name, err)
+
+		}
 	}
 
 	// We need to update the API object so that we know we've published the

@@ -203,13 +203,11 @@ func (ws *workflowSyncer) policy(
 			if *pr.Head.Repo.URL != *pr.Base.Repo.URL {
 				updater.StatusUpdate(
 					ctx,
-					StatusUpdateOpts{
-						crID:       crID,
-						title:      title,
-						summary:    "refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
-						status:     "completed",
-						conclusion: "failure",
-					},
+					crID,
+					title,
+					"refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
+					"completed",
+					"failure",
 				)
 				log.Printf("not running %s %s, as it for a PR from a non-local branch", repo.GetFullName(), headBranch)
 				return false
@@ -228,13 +226,11 @@ func (ws *workflowSyncer) policy(
 			if !baseMatched {
 				updater.StatusUpdate(
 					ctx,
-					StatusUpdateOpts{
-						crID:       crID,
-						title:      title,
-						summary:    fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
-						status:     "completed",
-						conclusion: "failure",
-					},
+					crID,
+					title,
+					fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+					"completed",
+					"failure",
 				)
 
 				log.Printf("not running %s %s, base branch did not match %s", repo.GetFullName(), headBranch, ws.config.buildBranches.String())
@@ -251,13 +247,11 @@ func (ws *workflowSyncer) policy(
 		if onlyDrafts && !ws.config.BuildDraftPRs {
 			updater.StatusUpdate(
 				ctx,
-				StatusUpdateOpts{
-					crID:       crID,
-					title:      title,
-					summary:    "auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
-					status:     "completed",
-					conclusion: "failure",
-				},
+				crID,
+				title,
+				"auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
+				"completed",
+				"failure",
 			)
 			log.Printf("not running %s %s, as it is only used in draft PRs", repo.GetFullName(), headBranch)
 			return false
@@ -270,13 +264,11 @@ func (ws *workflowSyncer) policy(
 	if ws.config.buildBranches != nil && !ws.config.buildBranches.MatchString(headBranch) {
 		updater.StatusUpdate(
 			ctx,
-			StatusUpdateOpts{
-				crID:       crID,
-				title:      title,
-				summary:    fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
-				status:     "completed",
-				conclusion: "failure",
-			},
+			crID,
+			title,
+			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+			"completed",
+			"failure",
 		)
 		log.Printf("not running %s %s, as it target unmatched base branches", repo.GetFullName(), headBranch)
 		return false
@@ -318,27 +310,17 @@ func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
 	}
 }
 
-type StatusUpdateOpts struct {
-	crID       int64
-	title      string
-	summary    string
-	text       string
-	anns       []*github.CheckRunAnnotation
-	status     string
-	conclusion string
-	headSHA    string
-	url        string
-
-	actions []*github.CheckRunAction
-}
-
 // StatusUpdater in an interface for informing something about the an update on
 // the progress of a workflow run. The crid arg shoul dbe factored out so this
 // closes over amore abstract concept.
 type StatusUpdater interface {
 	StatusUpdate(
 		ctx context.Context,
-		opts StatusUpdateOpts,
+		crID int64,
+		title string,
+		msg string,
+		status string,
+		conclusion string,
 	)
 }
 
@@ -392,25 +374,22 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 
 	updater.StatusUpdate(
 		ctx,
-		StatusUpdateOpts{
-			crID:    *cr.ID,
-			title:   title,
-			summary: "Creating Workflow",
-			status:  "queued",
-		},
+		*cr.ID,
+		title,
+		"Creating Workflow",
+		"queued",
+		"",
 	)
 
 	if err != nil {
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
 		updater.StatusUpdate(
 			ctx,
-			StatusUpdateOpts{
-				crID:       *cr.ID,
-				title:      title,
-				summary:    msg,
-				status:     "queued",
-				conclusion: "failure",
-			},
+			*cr.ID,
+			title,
+			msg,
+			"completed",
+			"failure",
 		)
 		log.Printf("unable to parse workflow for %s (%s), %v", repo, headbranch, err)
 		return nil
@@ -433,13 +412,11 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 			err := fmt.Errorf("no entrypoing %q found in workflow templates", entrypoint)
 			updater.StatusUpdate(
 				ctx,
-				StatusUpdateOpts{
-					crID:       *cr.ID,
-					title:      title,
-					summary:    err.Error(),
-					status:     "completed",
-					conclusion: "failure",
-				},
+				*cr.ID,
+				title,
+				err.Error(),
+				"completed",
+				"failure",
 			)
 			return err
 		}
@@ -478,13 +455,11 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 	if err != nil {
 		updater.StatusUpdate(
 			ctx,
-			StatusUpdateOpts{
-				crID:       *cr.ID,
-				title:      title,
-				summary:    fmt.Sprintf("creation of cache volume failed, %v", err),
-				status:     "completed",
-				conclusion: "failure",
-			},
+			*cr.ID,
+			title,
+			fmt.Sprintf("creation of cache volume failed, %v", err),
+			"completed",
+			"failure",
 		)
 		return err
 	}
@@ -493,13 +468,11 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 	if err != nil {
 		updater.StatusUpdate(
 			ctx,
-			StatusUpdateOpts{
-				crID:       *cr.ID,
-				title:      title,
-				summary:    fmt.Sprintf("argo workflow creation failed, %v", err),
-				status:     "completed",
-				conclusion: "failure",
-			},
+			*cr.ID,
+			title,
+			fmt.Sprintf("argo workflow creation failed, %v", err),
+			"completed",
+			"failure",
 		)
 
 		return fmt.Errorf("workflow creation failed, %w", err)
