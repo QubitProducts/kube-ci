@@ -1,0 +1,38 @@
+syntax = "proto3";
+option go_package = "github.com/QubitProductsion/kubec-ci/kubeci";
+
+package kubeci;
+
+message Repo {
+  string org    = 1;
+  string repo   = 2;
+  string branch = 3;
+}
+
+message ListTemplatesRequest {
+}
+
+message ListTemplatesResponse {
+  repeated string name = 1;
+}
+
+message SetupRepoRequest {
+  Repo   repo     = 1;
+  string template = 2;
+}
+
+message SetupRepoResponse {
+}
+
+message LaunchWorkflowRequest {
+  Repo   repo   = 1;
+  string commit = 2;
+}
+
+message LaunchWorkflowResponse {
+}
+
+service KubeCI {
+  rpc ListTemplate(ListTemplateRequest) returns (ListTemplatesResponse) {};
+  rpc SetupRepo(SetupRepoRequest) returns (SetupRepoResponse) {};
+}
