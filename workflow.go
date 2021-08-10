@@ -68,7 +68,9 @@ func (ws *workflowSyncer) updateWorkflow(
 	}
 
 	ttl := int32((3 * 24 * time.Hour) / time.Second)
-	wf.Spec.TTLSecondsAfterFinished = &ttl
+	wf.Spec.TTLStrategy = &workflow.TTLStrategy{
+		SecondsAfterCompletion: &ttl,
+	}
 
 	wf.Spec.Tolerations = append(
 		wf.Spec.Tolerations,
