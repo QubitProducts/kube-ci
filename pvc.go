@@ -158,8 +158,15 @@ func (ws *workflowSyncer) deletePVC(
 		ls[labelBranch] = labelSafe(branch)
 	}
 
+	sel := ls.AsSelector().String()
+	if len(sel) == 0 {
+		return fmt.Errorf("built nil selector! set = %#v", ls)
+	}
+
+	log.Printf("selector: %#v", sel)
+
 	opt := metav1.ListOptions{
-		LabelSelector: ls.AsSelector().String(),
+		LabelSelector: sel,
 	}
 
 	pvcs, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(ws.config.Namespace).List(opt)
@@ -169,10 +176,6 @@ func (ws *workflowSyncer) deletePVC(
 
 	if err != nil {
 		return err
-	}
-
-	if len(pvcs.Items) > 1 {
-		return fmt.Errorf("PVC BUG, DELETING MULTIPLE PVCs!! selector: %q", ls.AsSelector())
 	}
 
 	for _, pvc := range pvcs.Items {

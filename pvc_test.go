@@ -162,3 +162,44 @@ func TestWebhookRepositoryDeleteEvent(t *testing.T) {
 		return
 	}
 }
+
+func TestWebhookDeleteBranchEvent_BadName(t *testing.T) {
+	ctx := context.Background()
+
+	pvcs := []runtime.Object{}
+	pvcs = append(pvcs, newPVC("unrelated", "default", "", "", "", ""))
+	pvcs = append(pvcs, newPVC("unrelated", "argo", "", "", "", ""))
+	pvcs = append(pvcs, newPVC("somepvcwecreated", "argo", "myorg", "myrepo", "project", ""))
+	client := k8sfake.NewSimpleClientset(pvcs...)
+
+	ws := &workflowSyncer{
+		kubeclient: client,
+	}
+	hh := &hookHandler{
+		pvcs: ws,
+	}
+
+	ev := &github.DeleteEvent{
+		Ref:     github.String("-my..bad..branch...name-"),
+		RefType: github.String("branch"),
+		Repo: &github.Repository{
+			Name: github.String("myrepo"),
+			Owner: &github.User{
+				Login: github.String("myorg"),
+			},
+		},
+	}
+
+	_, status := hh.webhookDeleteBranchEvent(ctx, ev)
+	if status != "OK" {
+		t.Fatalf("unexpected status, %v", status)
+		return
+	}
+
+	for _, act := range client.Actions() {
+		switch act := act.(type) {
+		case k8stesting.DeleteActionImpl:
+			t.Errorf("unexpected delete of %v/%v ", act.Namespace, act.Name)
+		}
+	}
+}
