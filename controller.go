@@ -187,6 +187,7 @@ type workflowSyncer struct {
 
 var sanitize = regexp.MustCompile(`[^-a-z0-9]`)
 var sanitizeToDNS = regexp.MustCompile(`^[-.0-9]*`)
+var sanitizeToDNSSuff = regexp.MustCompile(`-+$`)
 
 func escape(str string) string {
 	return sanitize.ReplaceAllString(strings.ToLower(str), "-")
@@ -206,7 +207,9 @@ func labelSafe(strs ...string) string {
 		str = str[strOver*-1:]
 	}
 
-	return sanitizeToDNS.ReplaceAllString(str, "")
+	str = sanitizeToDNS.ReplaceAllString(str, "")
+	str = sanitizeToDNSSuff.ReplaceAllString(str, "")
+	return str
 }
 
 func (ws *workflowSyncer) enqueue(obj interface{}) {
