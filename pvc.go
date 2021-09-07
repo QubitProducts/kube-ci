@@ -145,6 +145,7 @@ func (ws *workflowSyncer) deletePVC(
 	branch string,
 	action string) error {
 
+	log.Printf("clearing PVCs for %q/%q %q (action: %q)", org, repo, branch, action)
 	ls := labels.Set(
 		map[string]string{
 			labelManagedBy: "kube-ci",
@@ -168,6 +169,10 @@ func (ws *workflowSyncer) deletePVC(
 
 	if err != nil {
 		return err
+	}
+
+	if len(pvcs.Items) > 1 {
+		return fmt.Errorf("PVC BUG, DELETING MULTIPLE PVCs!! selector: %q", ls.AsSelector())
 	}
 
 	for _, pvc := range pvcs.Items {
