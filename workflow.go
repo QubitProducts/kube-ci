@@ -14,23 +14,32 @@ import (
 )
 
 func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
-	// We'll cancel all in-progress checks for this
-	// repo/branch
-	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(labels.Set(
+	ls := labels.Set(
 		map[string]string{
 			labelOrg:    org,
 			labelRepo:   repo,
 			labelBranch: branch,
-		}).AsSelector())
+		})
+
+	sel := ls.AsSelector()
+	if sel.Empty() {
+		log.Printf("failed clearing existing workflows, invalid labels selector, %#v", ls)
+		return
+	}
+
+	// We'll cancel all in-progress checks for this
+	// repo/branch
+	wfs, err := ws.lister.Workflows(ws.config.Namespace).List(sel)
+	if err != nil {
+		log.Printf("failed clearing existing workflows, %v", err)
+		return
+	}
 
 	for _, wf := range wfs {
 		wf = wf.DeepCopy()
 		ads := int64(0)
 		wf.Spec.ActiveDeadlineSeconds = &ads
 		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
-	}
-	if err != nil {
-		log.Printf("failed clearing existing workflows, %v", err)
 	}
 }
 
@@ -411,7 +420,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 				headsha,
 				entrypoint,
 			)
-			err := fmt.Errorf("no entrypoing %q found in workflow templates", entrypoint)
+			err = fmt.Errorf("no entrypoing %q found in workflow templates", entrypoint)
 			updater.StatusUpdate(
 				ctx,
 				*cr.ID,
