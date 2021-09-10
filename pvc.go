@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
-	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	k8errors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,6 +27,7 @@ func (ws *workflowSyncer) ensurePVC(
 	repo string,
 	branch string,
 	defaults CacheSpec) error {
+	ctx := context.Background()
 	scope := defaults.Scope
 	if wfScope, ok := wf.Annotations[annCacheVolumeScope]; ok {
 		scope = wfScope
@@ -79,7 +81,7 @@ func (ws *workflowSyncer) ensurePVC(
 
 	opt := metav1.GetOptions{}
 
-	pv, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(name, opt)
+	pv, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(ctx, name, opt)
 	if err == nil {
 		for k, v := range ls {
 			v2, ok := pv.Labels[k]
@@ -91,7 +93,7 @@ func (ws *workflowSyncer) ensurePVC(
 		parms := wf.Spec.Arguments.Parameters
 		wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 			Name:  paramCacheVolumeClaimName,
-			Value: workflow.Int64OrStringPtr(name),
+			Value: workflow.AnyStringPtr(name),
 		})
 
 		return nil
@@ -123,7 +125,7 @@ func (ws *workflowSyncer) ensurePVC(
 		Spec: spec,
 	}
 
-	_, err = ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Create(pv)
+	_, err = ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Create(ctx, pv, metav1.CreateOptions{})
 	if err != nil {
 		return err
 	}
@@ -131,7 +133,7 @@ func (ws *workflowSyncer) ensurePVC(
 	parms := wf.Spec.Arguments.Parameters
 	wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 		Name:  paramCacheVolumeClaimName,
-		Value: workflow.Int64OrStringPtr(name),
+		Value: workflow.AnyStringPtr(name),
 	})
 
 	return nil
@@ -144,6 +146,7 @@ func (ws *workflowSyncer) deletePVC(
 	repo string,
 	branch string,
 	action string) error {
+	ctx := context.Background()
 
 	log.Printf("clearing PVCs for %q/%q %q (action: %q)", org, repo, branch, action)
 	ls := labels.Set(
@@ -169,7 +172,7 @@ func (ws *workflowSyncer) deletePVC(
 		LabelSelector: sel,
 	}
 
-	pvcs, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(ws.config.Namespace).List(opt)
+	pvcs, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(ws.config.Namespace).List(ctx, opt)
 	if k8errors.IsNotFound(err) {
 		return nil
 	}
@@ -179,7 +182,7 @@ func (ws *workflowSyncer) deletePVC(
 	}
 
 	for _, pvc := range pvcs.Items {
-		err := ws.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(pvc.GetName(), nil)
+		err := ws.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(ctx, pvc.GetName(), metav1.DeleteOptions{})
 		if err != nil {
 			log.Printf("failed to delete pvc %s/%s, %v", pvc.GetNamespace(), pvc.GetName(), err)
 			continue

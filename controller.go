@@ -32,10 +32,10 @@ import (
 	"strings"
 	"time"
 
-	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
-	clientset "github.com/argoproj/argo/pkg/client/clientset/versioned"
-	informers "github.com/argoproj/argo/pkg/client/informers/externalversions"
-	listers "github.com/argoproj/argo/pkg/client/listers/workflow/v1alpha1"
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+	clientset "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
+	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
+	listers "github.com/argoproj/argo-workflows/v3/pkg/client/listers/workflow/v1alpha1"
 
 	"github.com/bradleyfalzon/ghinstallation"
 	"github.com/google/go-github/v32/github"
@@ -411,7 +411,7 @@ func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
 	}, nil
 }
 
-func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workflow, error) {
+func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workflow) (*workflow.Workflow, error) {
 	newWf := wf.DeepCopy()
 
 	cr, err := crInfoFromWorkflow(wf)
@@ -424,7 +424,7 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 		return nil, err
 	}
 
-	newCR, err := ghClient.CreateCheckRun(context.TODO(),
+	newCR, err := ghClient.CreateCheckRun(ctx,
 		github.CreateCheckRunOptions{
 			Name:    checkRunName,
 			HeadSHA: cr.headSHA,
@@ -461,18 +461,19 @@ func (ws *workflowSyncer) resetCheckRun(wf *workflow.Workflow) (*workflow.Workfl
 	newWf.Annotations[annCheckRunName] = newCR.GetName()
 	newWf.Annotations[annCheckRunID] = strconv.Itoa(int(newCR.GetID()))
 
-	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(newWf)
+	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(ctx, newWf, metav1.UpdateOptions{})
 }
 
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
+	ctx := context.Background()
 	var err error
 
 	log.Printf("got workflow phase: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
 
 	if v, ok := wf.Annotations[annAnnotationsPublished]; ok && v == "true" {
 		switch wf.Status.Phase {
-		case workflow.NodePending, workflow.NodeRunning: // attempt create new checkrun for a resubmitted job
-			wf, err = ws.resetCheckRun(wf)
+		case workflow.WorkflowPending, workflow.WorkflowRunning: // attempt create new checkrun for a resubmitted job
+			wf, err = ws.resetCheckRun(ctx, wf)
 			if err != nil {
 				log.Printf("failed checkrun reset, %v", err)
 				return nil
@@ -498,7 +499,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 	failure := "failure"
 	success := "success"
-	neutral := "neutral"
+	//	neutral := "neutral"
 	cancelled := "cancelled"
 	var conclusion *string
 
@@ -508,29 +509,29 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	}
 
 	switch wf.Status.Phase {
-	case workflow.NodePending:
+	case workflow.WorkflowPending:
 		status = *initialCheckRunStatus
-	case workflow.NodeRunning:
+	case workflow.WorkflowRunning:
 		status = "in_progress"
-	case workflow.NodeFailed:
+	case workflow.WorkflowFailed:
 		status = "completed"
 		conclusion = &failure
 		if wf.Spec.ActiveDeadlineSeconds != nil && *wf.Spec.ActiveDeadlineSeconds == 0 {
 			conclusion = &cancelled
 		}
 		completedAt = now
-	case workflow.NodeError:
+	case workflow.WorkflowError:
 		status = "completed"
 		conclusion = &failure
 		completedAt = now
-	case workflow.NodeSucceeded:
+	case workflow.WorkflowSucceeded:
 		status = "completed"
 		conclusion = &success
 		completedAt = now
-	case workflow.NodeSkipped:
-		status = "completed"
-		conclusion = &neutral
-		completedAt = now
+		//	case workflow.WorkflowSkipped:
+		//		status = "completed"
+		//		conclusion = &neutral
+		//		completedAt = now
 	default:
 		log.Printf("ignoring %s/%s, unknown node phase %q", wf.Namespace, wf.Name, wf.Status.Phase)
 		return nil
@@ -595,8 +596,9 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 // completeCheckRun is used to publish any annotations found in the logs from a check run.
 // There are a bunch of reasons this could fail.
 func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *workflow.Workflow, cri *crInfo) {
-	if wf.Status.Phase != workflow.NodeFailed &&
-		wf.Status.Phase != workflow.NodeSucceeded {
+	ctx := context.Background()
+	if wf.Status.Phase != workflow.WorkflowFailed &&
+		wf.Status.Phase != workflow.WorkflowSucceeded {
 		return
 	}
 
@@ -605,7 +607,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 		if n.Type != "Pod" {
 			continue
 		}
-		logr, err := getPodLogs(ws.kubeclient, n.ID, wf.Namespace, "main")
+		logr, err := getPodLogs(ctx, ws.kubeclient, n.ID, wf.Namespace, "main")
 		if err != nil {
 			log.Printf("getting pod logs failed, %v", err)
 			continue
@@ -681,7 +683,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 
 	// We need to update the API object so that we know we've published the
 	// logs, we'll grab the latest one incase it has changed since we got here.
-	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Get(wf.Name, metav1.GetOptions{})
+	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Get(ctx, wf.Name, metav1.GetOptions{})
 	if err != nil {
 		log.Printf("getting workflow %s/%s for annotations update failed, %v", newwf.Namespace, newwf.Name, err)
 		return
@@ -693,7 +695,7 @@ func (ws *workflowSyncer) completeCheckRun(title, summary, text *string, wf *wor
 	}
 	upwf.Annotations[annAnnotationsPublished] = "true"
 
-	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Update(upwf)
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Update(ctx, upwf, metav1.UpdateOptions{})
 	if err != nil {
 		log.Printf("workflow %s/%s update for annotations update failed, %v", upwf.Namespace, upwf.Name, err)
 	}

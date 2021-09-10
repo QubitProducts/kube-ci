@@ -32,9 +32,9 @@ import (
 	"syscall"
 	"time"
 
-	clientset "github.com/argoproj/argo/pkg/client/clientset/versioned"
-	argoScheme "github.com/argoproj/argo/pkg/client/clientset/versioned/scheme"
-	informers "github.com/argoproj/argo/pkg/client/informers/externalversions"
+	clientset "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
+	argoScheme "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned/scheme"
+	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
 	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/client_golang/prometheus"

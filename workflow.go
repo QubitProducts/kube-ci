@@ -8,12 +8,14 @@ import (
 	"strconv"
 	"time"
 
-	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v32/github"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
 func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
+	ctx := context.Background()
 	ls := labels.Set(
 		map[string]string{
 			labelOrg:    org,
@@ -39,7 +41,7 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 		wf = wf.DeepCopy()
 		ads := int64(0)
 		wf.Spec.ActiveDeadlineSeconds = &ads
-		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(wf)
+		ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Update(ctx, wf, metav1.UpdateOptions{})
 	}
 }
 
@@ -111,50 +113,50 @@ func (ws *workflowSyncer) updateWorkflow(
 	parms = append(parms, []workflow.Parameter{
 		{
 			Name:  "repo",
-			Value: workflow.Int64OrStringPtr(sshURL),
+			Value: workflow.AnyStringPtr(sshURL),
 		},
 		{
 			Name:  "repo_git_url",
-			Value: workflow.Int64OrStringPtr(gitURL),
+			Value: workflow.AnyStringPtr(gitURL),
 		},
 		{
 			Name:  "repo_https_url",
-			Value: workflow.Int64OrStringPtr(httpsURL),
+			Value: workflow.AnyStringPtr(httpsURL),
 		},
 		{
 			Name:  "repoName",
-			Value: workflow.Int64OrStringPtr(repoName),
+			Value: workflow.AnyStringPtr(repoName),
 		},
 		{
 			Name:  "orgName",
-			Value: workflow.Int64OrStringPtr(owner),
+			Value: workflow.AnyStringPtr(owner),
 		},
 		{
 			Name:  "revision",
-			Value: workflow.Int64OrStringPtr(headSHA),
+			Value: workflow.AnyStringPtr(headSHA),
 		},
 		{
 			Name:  "refType",
-			Value: workflow.Int64OrStringPtr(headRefType),
+			Value: workflow.AnyStringPtr(headRefType),
 		},
 		{
 			Name:  "refName",
-			Value: workflow.Int64OrStringPtr(headRefName),
+			Value: workflow.AnyStringPtr(headRefName),
 		},
 		{
 			Name:  headRefType,
-			Value: workflow.Int64OrStringPtr(headRefName),
+			Value: workflow.AnyStringPtr(headRefName),
 		},
 	}...)
 
-	prIDArg := workflow.Int64OrStringPtr("")
-	prBaseArg := workflow.Int64OrStringPtr("")
+	prIDArg := workflow.AnyStringPtr("")
+	prBaseArg := workflow.AnyStringPtr("")
 
 	if len(prs) != 0 {
 		pr := prs[0]
 		prid := strconv.Itoa(pr.GetNumber())
-		prIDArg = workflow.Int64OrStringPtr(prid)
-		prBaseArg = workflow.Int64OrStringPtr(*pr.Base.Ref)
+		prIDArg = workflow.AnyStringPtr(prid)
+		prBaseArg = workflow.AnyStringPtr(*pr.Base.Ref)
 	}
 
 	parms = append(parms, []workflow.Parameter{
@@ -475,7 +477,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 		return err
 	}
 
-	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(wf)
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
 		updater.StatusUpdate(
 			ctx,
