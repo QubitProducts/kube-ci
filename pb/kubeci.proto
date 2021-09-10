@@ -33,6 +33,6 @@ message LaunchWorkflowResponse {
 }
 
 service KubeCI {
-  rpc ListTemplate(ListTemplateRequest) returns (ListTemplatesResponse) {};
+  rpc ListTemplate(ListTemplatesRequest) returns (ListTemplatesResponse) {};
   rpc SetupRepo(SetupRepoRequest) returns (SetupRepoResponse) {};
 }
