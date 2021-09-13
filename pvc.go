@@ -88,6 +88,12 @@ func (ws *workflowSyncer) ensurePVC(
 			}
 		}
 
+		if branch != "" {
+			if b, ok := pv.Annotations[annBranch]; ok && b != branch {
+				return errors.New("cache pvc branch annotation mismatch")
+			}
+		}
+
 		parms := wf.Spec.Arguments.Parameters
 		wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 			Name:  paramCacheVolumeClaimName,
@@ -114,11 +120,20 @@ func (ws *workflowSyncer) ensurePVC(
 		spec.StorageClassName = &class
 	}
 
+	anns := map[string]string{
+		annRepo: repo,
+		annOrg:  org,
+	}
+	if branch != "" {
+		anns[annBranch] = branch
+	}
+
 	pv = &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: wf.Namespace,
-			Labels:    ls,
+			Name:        name,
+			Namespace:   wf.Namespace,
+			Labels:      ls,
+			Annotations: anns,
 		},
 		Spec: spec,
 	}
@@ -155,7 +170,6 @@ func (ws *workflowSyncer) deletePVC(
 
 	if branch != "" {
 		ls[labelScope] = scopeBranch
-		ls[labelBranch] = labelSafe(branch)
 	}
 
 	sel := ls.AsSelector().String()
@@ -179,6 +193,14 @@ func (ws *workflowSyncer) deletePVC(
 	}
 
 	for _, pvc := range pvcs.Items {
+		if branch != "" {
+			if b, ok := pvc.Labels[labelBranch]; ok && b != labelSafe(branch) {
+				continue
+			}
+			if b, ok := pvc.Annotations[annBranch]; ok && b != branch {
+				continue
+			}
+		}
 		err := ws.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(pvc.GetName(), nil)
 		if err != nil {
 			log.Printf("failed to delete pvc %s/%s, %v", pvc.GetNamespace(), pvc.GetName(), err)

@@ -16,9 +16,8 @@ import (
 func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 	ls := labels.Set(
 		map[string]string{
-			labelOrg:    org,
-			labelRepo:   repo,
-			labelBranch: branch,
+			labelOrg:  labelSafe(org),
+			labelRepo: labelSafe(repo),
 		})
 
 	sel := ls.AsSelector()
@@ -36,6 +35,12 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 	}
 
 	for _, wf := range wfs {
+		if wf.Annotations != nil {
+			b := wf.Annotations[annBranch]
+			if b != branch {
+				continue
+			}
+		}
 		wf = wf.DeepCopy()
 		ads := int64(0)
 		wf.Spec.ActiveDeadlineSeconds = &ads
@@ -439,9 +444,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 	}
 
 	ws.cancelRunningWorkflows(
-		labelSafe(org),
-		labelSafe(name),
-		labelSafe(headbranch),
+		org,
+		name,
+		headbranch,
 	)
 
 	wf = wf.DeepCopy()
