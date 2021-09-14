@@ -13,6 +13,20 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+// StatusUpdater in an interface for informing something about the an update on
+// the progress of a workflow run. The crid arg shoul dbe factored out so this
+// closes over amore abstract concept.
+type StatusUpdater interface {
+	StatusUpdate(
+		ctx context.Context,
+		crID int64,
+		title string,
+		msg string,
+		status string,
+		conclusion string,
+	)
+}
+
 func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 	ls := labels.Set(
 		map[string]string{
@@ -324,20 +338,6 @@ func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
 	default:
 		return false
 	}
-}
-
-// StatusUpdater in an interface for informing something about the an update on
-// the progress of a workflow run. The crid arg shoul dbe factored out so this
-// closes over amore abstract concept.
-type StatusUpdater interface {
-	StatusUpdate(
-		ctx context.Context,
-		crID int64,
-		title string,
-		msg string,
-		status string,
-		conclusion string,
-	)
 }
 
 func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient ghClientInterface, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error {
