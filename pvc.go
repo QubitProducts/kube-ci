@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes"
 )
 
 var (
@@ -20,7 +21,12 @@ var (
 	scopeNone                 = "none"
 )
 
-func (ws *workflowSyncer) ensurePVC(
+type k8sStorageManager struct {
+	namespace  string
+	kubeclient kubernetes.Interface
+}
+
+func (sm *k8sStorageManager) ensurePVC(
 	wf *workflow.Workflow,
 	org string,
 	repo string,
@@ -79,7 +85,7 @@ func (ws *workflowSyncer) ensurePVC(
 
 	opt := metav1.GetOptions{}
 
-	pv, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(name, opt)
+	pv, err := sm.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(name, opt)
 	if err == nil {
 		for k, v := range ls {
 			v2, ok := pv.Labels[k]
@@ -138,7 +144,7 @@ func (ws *workflowSyncer) ensurePVC(
 		Spec: spec,
 	}
 
-	_, err = ws.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Create(pv)
+	_, err = sm.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Create(pv)
 	if err != nil {
 		return err
 	}
@@ -154,7 +160,7 @@ func (ws *workflowSyncer) ensurePVC(
 
 // when a branch or repo gets deleted (or archived), we delete any pvc
 // associated with it. If branch is not "", only that branch is deleted.
-func (ws *workflowSyncer) deletePVC(
+func (sm *k8sStorageManager) deletePVC(
 	org string,
 	repo string,
 	branch string,
@@ -183,7 +189,7 @@ func (ws *workflowSyncer) deletePVC(
 		LabelSelector: sel,
 	}
 
-	pvcs, err := ws.kubeclient.CoreV1().PersistentVolumeClaims(ws.config.Namespace).List(opt)
+	pvcs, err := sm.kubeclient.CoreV1().PersistentVolumeClaims(sm.namespace).List(opt)
 	if k8errors.IsNotFound(err) {
 		return nil
 	}
@@ -201,7 +207,7 @@ func (ws *workflowSyncer) deletePVC(
 				continue
 			}
 		}
-		err := ws.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(pvc.GetName(), nil)
+		err := sm.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(pvc.GetName(), nil)
 		if err != nil {
 			log.Printf("failed to delete pvc %s/%s, %v", pvc.GetNamespace(), pvc.GetName(), err)
 			continue

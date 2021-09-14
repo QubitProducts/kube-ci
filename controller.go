@@ -19,13 +19,11 @@ package main
 // in kubernetes.
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -44,7 +42,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 )
@@ -83,7 +80,31 @@ type githubKeyStore struct {
 	orgs          *regexp.Regexp
 }
 
-func (ks *githubKeyStore) getClient(org string, installID int, repo string) (*repoClient, error) {
+type ghClientInterface interface {
+	GetInstallID() int
+	GetRef(ctx context.Context, ref string) (*github.Reference, error)
+	UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error)
+	StatusUpdate(
+		ctx context.Context,
+		crID int64,
+		title string,
+		msg string,
+		status string,
+		conclusion string,
+	)
+	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
+	CreateDeployment(ctx context.Context, req *github.DeploymentRequest) (*github.Deployment, error)
+	CreateDeploymentStatus(ctx context.Context, id int64, req *github.DeploymentStatusRequest) (*github.DeploymentStatus, error)
+	IsMember(ctx context.Context, user string) (bool, error)
+	DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
+	CreateFile(ctx context.Context, filepath string, opts *github.RepositoryContentFileOptions) error
+	GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error)
+	GetBranch(ctx context.Context, branch string) (*github.Branch, error)
+	GetPullRequest(ctx context.Context, prid int) (*github.PullRequest, error)
+	CreateIssueComment(ctx context.Context, issueID int, opts *github.IssueComment) error
+}
+
+func (ks *githubKeyStore) getClient(org string, installID int, repo string) (ghClientInterface, error) {
 	validID := false
 	for _, id := range ks.ids {
 		if installID == id {
@@ -119,7 +140,7 @@ func (ks *githubKeyStore) getClient(org string, installID int, repo string) (*re
 }
 
 type githubClientSource interface {
-	getClient(org string, installID int, repo string) (*repoClient, error)
+	getClient(org string, installID int, repo string) (ghClientInterface, error)
 }
 
 // CacheSpec lets you choose the default settings for a
@@ -169,6 +190,11 @@ type Config struct {
 	buildBranches *regexp.Regexp
 }
 
+type storageManager interface {
+	ensurePVC(wf *workflow.Workflow, org, repo, branch string, defaults CacheSpec) error
+	deletePVC(org, repo, branch string, action string) error
+}
+
 type workflowSyncer struct {
 	appID    int64
 	ghSecret []byte
@@ -181,6 +207,8 @@ type workflowSyncer struct {
 	lister     listers.WorkflowLister
 	synced     cache.InformerSynced
 	workqueue  workqueue.RateLimitingInterface
+
+	storage storageManager
 
 	argoUIBase string
 }
@@ -263,6 +291,7 @@ func newWorkflowSyncer(
 	kubeclient kubernetes.Interface,
 	clientset clientset.Interface,
 	sinf informers.SharedInformerFactory,
+	storage storageManager,
 	ghClientSrc githubClientSource,
 	appID int64,
 	ghSecret []byte,
@@ -278,6 +307,7 @@ func newWorkflowSyncer(
 		ghSecret:    ghSecret,
 
 		kubeclient: kubeclient,
+		storage:    storage,
 		client:     clientset,
 		lister:     informer.Lister(),
 		synced:     informer.Informer().HasSynced,
@@ -715,70 +745,4 @@ func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {
 	log.Print("Shutting down workers")
 
 	return nil
-}
-
-func (ws *workflowSyncer) getFile(
-	ctx context.Context,
-	ghClient *repoClient,
-	owner string,
-	name string,
-	sha string,
-	filename string) (io.ReadCloser, error) {
-
-	file, err := ghClient.DownloadContents(
-		ctx,
-		filename,
-		&github.RepositoryContentGetOptions{
-			Ref: sha,
-		})
-	if err != nil {
-		if ghErr, ok := err.(*github.ErrorResponse); ok {
-			if ghErr.Response.StatusCode == http.StatusNotFound {
-				return nil, os.ErrNotExist
-			}
-		}
-		return nil, err
-	}
-	return file, nil
-}
-
-func (ws *workflowSyncer) getWorkflow(
-	ctx context.Context,
-	ghClient *repoClient,
-	repo *github.Repository,
-	sha string,
-	filename string) (*workflow.Workflow, error) {
-
-	file, err := ws.getFile(
-		ctx,
-		ghClient,
-		repo.GetOwner().GetLogin(),
-		repo.GetName(),
-		sha,
-		filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	bs := &bytes.Buffer{}
-
-	_, err = io.Copy(bs, file)
-	if err != nil {
-		return nil, err
-	}
-
-	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(bs.Bytes(), nil, nil)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode %s, %v", filename, err)
-	}
-
-	wf, ok := obj.(*workflow.Workflow)
-	if !ok {
-		return nil, fmt.Errorf("could not use %T as workflow", wf)
-	}
-
-	return wf, nil
 }

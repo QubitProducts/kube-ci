@@ -217,10 +217,16 @@ func main() {
 		orgs:          orgsrx,
 	}
 
+	storage := &k8sStorageManager{
+		namespace:  wfconfig.Namespace,
+		kubeclient: kubeClient,
+	}
+
 	wfSyncer := newWorkflowSyncer(
 		kubeClient,
 		wfClient,
 		sinf,
+		storage,
 		ghSrc,
 		*appID,
 		secret,
@@ -267,7 +273,7 @@ func main() {
 		slash:   slashHandler,
 		runner:  wfSyncer,
 		clients: ghSrc,
-		pvcs:    wfSyncer,
+		storage: storage,
 
 		uiBase:   *argoUIBaseURL,
 		appID:    *appID,

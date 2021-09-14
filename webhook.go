@@ -12,7 +12,7 @@ import (
 )
 
 type workflowRunner interface {
-	runWorkflow(ctx context.Context, ghClient *repoClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error
+	runWorkflow(ctx context.Context, ghClient ghClientInterface, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error
 }
 
 type pvcManager interface {
@@ -20,11 +20,11 @@ type pvcManager interface {
 }
 
 type slashRunner interface {
-	slashCommand(ctx context.Context, client *repoClient, event *github.IssueCommentEvent) error
+	slashCommand(ctx context.Context, client ghClientInterface, event *github.IssueCommentEvent) error
 }
 
 type hookHandler struct {
-	pvcs    pvcManager
+	storage pvcManager
 	clients githubClientSource
 	runner  workflowRunner
 	slash   slashRunner
@@ -67,7 +67,7 @@ func (h *hookHandler) webhookDeleteBranchEvent(ctx context.Context, event *githu
 	org := *event.GetRepo().GetOwner().Login
 	repo := *event.Repo.Name
 	branch := event.GetRef()
-	err := h.pvcs.deletePVC(
+	err := h.storage.deletePVC(
 		org,
 		repo,
 		branch,
@@ -82,7 +82,7 @@ func (h *hookHandler) webhookDeleteBranchEvent(ctx context.Context, event *githu
 func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *github.RepositoryEvent) (int, string) {
 	org := *event.GetRepo().GetOwner().Login
 	repo := *event.Repo.Name
-	err := h.pvcs.deletePVC(
+	err := h.storage.deletePVC(
 		org,
 		repo,
 		"",

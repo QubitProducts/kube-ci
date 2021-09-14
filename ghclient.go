@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"os"
 	"time"
 
+	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v32/github"
+	"k8s.io/client-go/kubernetes/scheme"
 )
 
 type repoClient struct {
@@ -161,4 +167,65 @@ func (r *repoClient) CreateIssueComment(ctx context.Context, issueID int, opts *
 		issueID,
 		opts)
 	return err
+}
+
+func getFile(
+	ctx context.Context,
+	ghClient ghClientInterface,
+	sha string,
+	filename string) (io.ReadCloser, error) {
+
+	file, err := ghClient.DownloadContents(
+		ctx,
+		filename,
+		&github.RepositoryContentGetOptions{
+			Ref: sha,
+		})
+	if err != nil {
+		if ghErr, ok := err.(*github.ErrorResponse); ok {
+			if ghErr.Response.StatusCode == http.StatusNotFound {
+				return nil, os.ErrNotExist
+			}
+		}
+		return nil, err
+	}
+	return file, nil
+}
+
+func getWorkflow(
+	ctx context.Context,
+	ghClient ghClientInterface,
+	sha string,
+	filename string) (*workflow.Workflow, error) {
+
+	file, err := getFile(
+		ctx,
+		ghClient,
+		sha,
+		filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	bs := &bytes.Buffer{}
+
+	_, err = io.Copy(bs, file)
+	if err != nil {
+		return nil, err
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(bs.Bytes(), nil, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s, %v", filename, err)
+	}
+
+	wf, ok := obj.(*workflow.Workflow)
+	if !ok {
+		return nil, fmt.Errorf("could not use %T as workflow", wf)
+	}
+
+	return wf, nil
 }

@@ -59,11 +59,11 @@ func TestWebhookDeleteBranchEvent(t *testing.T) {
 	pvcs = append(pvcs, newPVC("someother", "argo", "myorg", "myrepo2", "project", ""))
 	client := k8sfake.NewSimpleClientset(pvcs...)
 
-	ws := &workflowSyncer{
+	sm := &k8sStorageManager{
 		kubeclient: client,
 	}
 	hh := &hookHandler{
-		pvcs: ws,
+		storage: sm,
 	}
 
 	ev := &github.DeleteEvent{
@@ -121,11 +121,11 @@ func TestWebhookRepositoryDeleteEvent(t *testing.T) {
 
 	client := k8sfake.NewSimpleClientset(pvcs...)
 
-	ws := &workflowSyncer{
+	sm := &k8sStorageManager{
 		kubeclient: client,
 	}
 	hh := hookHandler{
-		pvcs: ws,
+		storage: sm,
 	}
 
 	ev := &github.RepositoryEvent{
@@ -172,11 +172,11 @@ func TestWebhookDeleteBranchEvent_BadName(t *testing.T) {
 	pvcs = append(pvcs, newPVC("somepvcwecreated", "argo", "myorg", "myrepo", "project", ""))
 	client := k8sfake.NewSimpleClientset(pvcs...)
 
-	ws := &workflowSyncer{
+	sm := &k8sStorageManager{
 		kubeclient: client,
 	}
 	hh := &hookHandler{
-		pvcs: ws,
+		storage: sm,
 	}
 
 	ev := &github.DeleteEvent{

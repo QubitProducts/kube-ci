@@ -340,13 +340,12 @@ type StatusUpdater interface {
 	)
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error {
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient ghClientInterface, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
-	wf, err := ws.getWorkflow(
+	wf, err := getWorkflow(
 		ctx,
 		ghClient,
-		repo,
 		headsha,
 		ws.config.CIFilePath,
 	)
@@ -461,7 +460,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient *repoClient,
 		cr,
 	)
 
-	err = ws.ensurePVC(
+	err = ws.storage.ensurePVC(
 		wf,
 		org,
 		name,
