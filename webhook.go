@@ -287,38 +287,7 @@ func (h *hookHandler) loggingWebhook(w http.ResponseWriter, r *http.Request) (in
 	return status, msg
 }
 
-func (h *hookHandler) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
-	payload, err := github.ValidatePayload(r, h.ghSecret)
-	if err != nil {
-		return http.StatusBadRequest, "request did not validate"
-	}
-
-	eventType := github.WebHookType(r)
-	rawEvent, err := github.ParseWebHook(eventType, payload)
-	if err != nil {
-		return http.StatusBadRequest, "could not parse request"
-	}
-
-	type repoGetter interface {
-		GetRepo() *github.Repository
-	}
-	type pushRepoGetter interface {
-		GetRepo() *github.PushEventRepository
-	}
-
-	switch rev := rawEvent.(type) {
-	case repoGetter:
-		r := rev.GetRepo()
-		log.Printf("webhook event of type %s for %s/%s", eventType, r.GetOwner().GetLogin(), r.GetName())
-	case pushRepoGetter:
-		r := rev.GetRepo()
-		log.Printf("webhook event of type %s for %s/%s", eventType, r.GetOwner().GetLogin(), r.GetName())
-	default:
-		log.Printf("webhook event of type %s", eventType)
-	}
-
-	ctx := r.Context()
-
+func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) (int, string) {
 	switch event := rawEvent.(type) {
 
 	case *github.CheckSuiteEvent:
@@ -396,4 +365,37 @@ func (h *hookHandler) webhook(w http.ResponseWriter, r *http.Request) (int, stri
 	default:
 		return http.StatusOK, fmt.Sprintf("unknown event type %T", event)
 	}
+}
+
+func (h *hookHandler) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
+	payload, err := github.ValidatePayload(r, h.ghSecret)
+	if err != nil {
+		return http.StatusBadRequest, "request did not validate"
+	}
+
+	eventType := github.WebHookType(r)
+	rawEvent, err := github.ParseWebHook(eventType, payload)
+	if err != nil {
+		return http.StatusBadRequest, "could not parse request"
+	}
+
+	type repoGetter interface {
+		GetRepo() *github.Repository
+	}
+	type pushRepoGetter interface {
+		GetRepo() *github.PushEventRepository
+	}
+
+	switch rev := rawEvent.(type) {
+	case repoGetter:
+		r := rev.GetRepo()
+		log.Printf("webhook event of type %s for %s/%s", eventType, r.GetOwner().GetLogin(), r.GetName())
+	case pushRepoGetter:
+		r := rev.GetRepo()
+		log.Printf("webhook event of type %s for %s/%s", eventType, r.GetOwner().GetLogin(), r.GetName())
+	default:
+		log.Printf("webhook event of type %s", eventType)
+	}
+
+	return h.webhookPayload(r.Context(), rawEvent)
 }
