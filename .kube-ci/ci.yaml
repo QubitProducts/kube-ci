@@ -24,7 +24,7 @@ spec:
           repo: "{{workflow.parameters.repo_git_url}}"
           revision: "{{workflow.parameters.revision}}"
     container:
-      image: "golang:1.16"
+      image: "golang:1.17"
       args:
       - sh
       - -c
