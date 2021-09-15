@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v32/github"
 	"k8s.io/client-go/kubernetes/scheme"
 )

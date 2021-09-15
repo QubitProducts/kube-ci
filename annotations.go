@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"log"
 	"strconv"
@@ -12,7 +13,7 @@ import (
 )
 
 // getPodLogs returns the logs for pod, the caller must close the stream
-func getPodLogs(client kubernetes.Interface, name, namespace, container string) (io.ReadCloser, error) {
+func getPodLogs(ctx context.Context, client kubernetes.Interface, name, namespace, container string) (io.ReadCloser, error) {
 	log.Printf("trying to stream logs for %s/%s[%s]", name, namespace, container)
 	req := client.CoreV1().RESTClient().Get().
 		Namespace(namespace).
@@ -21,7 +22,7 @@ func getPodLogs(client kubernetes.Interface, name, namespace, container string) 
 		SubResource("log").
 		Param("container", container)
 
-	readCloser, err := req.Stream()
+	readCloser, err := req.Stream(ctx)
 	if err != nil {
 		return nil, err
 	}

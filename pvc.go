@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
-	workflow "github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	k8errors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +33,7 @@ func (sm *k8sStorageManager) ensurePVC(
 	repo string,
 	branch string,
 	defaults CacheSpec) error {
+	ctx := context.Background()
 	scope := defaults.Scope
 	if wfScope, ok := wf.Annotations[annCacheVolumeScope]; ok {
 		scope = wfScope
@@ -85,7 +87,7 @@ func (sm *k8sStorageManager) ensurePVC(
 
 	opt := metav1.GetOptions{}
 
-	pv, err := sm.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(name, opt)
+	pv, err := sm.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(ctx, name, opt)
 	if err == nil {
 		for k, v := range ls {
 			v2, ok := pv.Labels[k]
@@ -103,7 +105,7 @@ func (sm *k8sStorageManager) ensurePVC(
 		parms := wf.Spec.Arguments.Parameters
 		wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 			Name:  paramCacheVolumeClaimName,
-			Value: workflow.Int64OrStringPtr(name),
+			Value: workflow.AnyStringPtr(name),
 		})
 
 		return nil
@@ -144,7 +146,7 @@ func (sm *k8sStorageManager) ensurePVC(
 		Spec: spec,
 	}
 
-	_, err = sm.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Create(pv)
+	_, err = sm.kubeclient.CoreV1().PersistentVolumeClaims(wf.Namespace).Create(ctx, pv, metav1.CreateOptions{})
 	if err != nil {
 		return err
 	}
@@ -152,7 +154,7 @@ func (sm *k8sStorageManager) ensurePVC(
 	parms := wf.Spec.Arguments.Parameters
 	wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 		Name:  paramCacheVolumeClaimName,
-		Value: workflow.Int64OrStringPtr(name),
+		Value: workflow.AnyStringPtr(name),
 	})
 
 	return nil
@@ -165,6 +167,7 @@ func (sm *k8sStorageManager) deletePVC(
 	repo string,
 	branch string,
 	action string) error {
+	ctx := context.Background()
 
 	log.Printf("clearing PVCs for %q/%q %q (action: %q)", org, repo, branch, action)
 	ls := labels.Set(
@@ -189,7 +192,7 @@ func (sm *k8sStorageManager) deletePVC(
 		LabelSelector: sel,
 	}
 
-	pvcs, err := sm.kubeclient.CoreV1().PersistentVolumeClaims(sm.namespace).List(opt)
+	pvcs, err := sm.kubeclient.CoreV1().PersistentVolumeClaims(sm.namespace).List(ctx, opt)
 	if k8errors.IsNotFound(err) {
 		return nil
 	}
@@ -207,7 +210,7 @@ func (sm *k8sStorageManager) deletePVC(
 				continue
 			}
 		}
-		err := sm.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(pvc.GetName(), nil)
+		err := sm.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(ctx, pvc.GetName(), metav1.DeleteOptions{})
 		if err != nil {
 			log.Printf("failed to delete pvc %s/%s, %v", pvc.GetNamespace(), pvc.GetName(), err)
 			continue
