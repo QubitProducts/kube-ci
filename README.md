@@ -68,6 +68,7 @@ Some extra parameteres will be added to your workflow before it is run.
 - *branch*: newpr5 (the head branch) (only if this is a branch)
 - *tag*: v1.0.1 (tag if this is from a tag push or create)
 - *cacheVolumeClaimName*: the name of the pvc created (if requested)
+- *repoDefaultBranch*: the default branch configured on the repository
 
 Workflows run for pull-requests will get this additional parameters:
 

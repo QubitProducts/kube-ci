@@ -123,10 +123,16 @@ func (ws *workflowSyncer) updateWorkflow(
 			p.Name == "branch" ||
 			p.Name == "revision" ||
 			p.Name == "orgnNme" ||
-			p.Name == "repoName" {
+			p.Name == "repoName" ||
+			p.Name == "repoDefaultBranch" {
 			continue
 		}
 		parms = append(parms, p)
+	}
+
+	defaultBranch := "main"
+	if repo.DefaultBranch != nil {
+		defaultBranch = *repo.DefaultBranch
 	}
 
 	parms = append(parms, []workflow.Parameter{
@@ -165,6 +171,10 @@ func (ws *workflowSyncer) updateWorkflow(
 		{
 			Name:  headRefType,
 			Value: workflow.AnyStringPtr(headRefName),
+		},
+		{
+			Name:  "repoDefaultBranch",
+			Value: workflow.AnyStringPtr(defaultBranch),
 		},
 	}...)
 
