@@ -96,7 +96,7 @@ func (sm *k8sStorageManager) ensurePVC(
 			}
 		}
 
-		if branch != "" {
+		if scope == scopeBranch && branch != "" {
 			if b, ok := pv.Annotations[annBranch]; ok && b != branch {
 				return errors.New("cache pvc branch annotation mismatch")
 			}
