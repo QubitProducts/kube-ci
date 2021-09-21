@@ -67,8 +67,7 @@ func TestPolicy(t *testing.T) {
 		title      string
 		prs        []*github.PullRequest
 
-		exp        bool
-		expMessage string
+		exp *policyRejection
 	}{
 		{
 			testName:   "default behaviour (non-PR)",
@@ -77,7 +76,7 @@ func TestPolicy(t *testing.T) {
 			headbranch: "master",
 			prs:        nil,
 
-			exp: true,
+			exp: nil,
 		},
 		{
 			testName: "unmatched build branch",
@@ -89,8 +88,7 @@ func TestPolicy(t *testing.T) {
 			headbranch: "master",
 			prs:        nil,
 
-			exp:        false,
-			expMessage: "checks are not automatically run for base branches that do not match `^main$`, you can run manually using `/kube-ci run`",
+			exp: &policyRejection{message: "checks are not automatically run for base branches that do not match `^main$`, you can run manually using `/kube-ci run`"},
 		},
 		{
 			testName: "one non-draft PR",
@@ -105,7 +103,7 @@ func TestPolicy(t *testing.T) {
 				},
 			},
 
-			exp: true,
+			exp: nil,
 		}, {
 			testName: "one non-draft PR, unmatched branch",
 
@@ -122,8 +120,7 @@ func TestPolicy(t *testing.T) {
 				},
 			},
 
-			exp:        false,
-			expMessage: "checks are not automatically run for base branches that do not match `^main$`, you can run manually using `/kube-ci run`",
+			exp: &policyRejection{message: "checks are not automatically run for base branches that do not match `^main$`, you can run manually using `/kube-ci run`"},
 		},
 		{
 			testName: "one draft PR",
@@ -139,7 +136,7 @@ func TestPolicy(t *testing.T) {
 				},
 			},
 
-			exp: true,
+			exp: nil,
 		},
 		{
 			testName: "one draft PR",
@@ -155,59 +152,35 @@ func TestPolicy(t *testing.T) {
 				},
 			},
 
-			exp:        false,
-			expMessage: "auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
+			exp: &policyRejection{message: "auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`"},
 		},
 	} {
 		st := st
 		ws := workflowSyncer{config: st.config}
-		crr := checkRunUpdateRecorder{}
 
 		t.Run(st.testName, func(t *testing.T) {
-			ok := ws.policy(
-				context.Background(),
-				&crr,
+			err := ws.policy(
 				st.repo,
 				st.headbranch,
 				st.title,
 				st.prs,
-				1,
 			)
-			if ok != st.exp {
-				t.Fatalf("expected policy to evaluate to %v, got %v", st.exp, ok)
-			}
-			if ok && len(crr.updates) != 0 {
-				t.Fatalf("policy passed, but we got unexpected checkrun updates, %v", crr.updates)
+			if err != nil {
+				if st.exp == nil {
+					t.Fatalf("unexpected policy rejection, got %v", err)
+					return
+				}
+				err.log = ""
+				if *err != *st.exp {
+					t.Fatalf("expected policy to evaluate to %v, got %v", st.exp, err)
+				}
 				return
 			}
 
-			if ok {
-				return
+			if st.exp != nil {
+				t.Fatalf("did not get expected policy rejection %v", st.exp)
 			}
 
-			if len(crr.updates) == 0 {
-				t.Fatalf("policy failed, but we got no explanatory check run update")
-				return
-			}
-			if len(crr.updates) != 1 {
-				t.Fatalf("only want one update, got %v", crr.updates)
-				return
-			}
-
-			update := crr.updates[0]
-			expConclusion := "failure"
-			if update.GetConclusion() != expConclusion {
-				t.Fatalf("expected checkrun conclusion %q, but got %q", expConclusion, update.GetConclusion())
-			}
-			expStatus := "completed"
-			if update.GetStatus() != expStatus {
-				t.Fatalf("expected checkrun status %q, but got %q", expStatus, update.GetStatus())
-			}
-
-			sum := update.GetOutput().GetSummary()
-			if st.expMessage != sum {
-				t.Fatalf("expected checkrun summary %q, but got %q", st.expMessage, sum)
-			}
 		})
 	}
 }

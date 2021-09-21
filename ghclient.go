@@ -169,13 +169,17 @@ func (r *repoClient) CreateIssueComment(ctx context.Context, issueID int, opts *
 	return err
 }
 
+type contentDownloader interface {
+	DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
+}
+
 func getFile(
 	ctx context.Context,
-	ghClient ghClientInterface,
+	cd contentDownloader,
 	sha string,
 	filename string) (io.ReadCloser, error) {
 
-	file, err := ghClient.DownloadContents(
+	file, err := cd.DownloadContents(
 		ctx,
 		filename,
 		&github.RepositoryContentGetOptions{
@@ -194,13 +198,13 @@ func getFile(
 
 func getWorkflow(
 	ctx context.Context,
-	ghClient ghClientInterface,
+	cd contentDownloader,
 	sha string,
 	filename string) (*workflow.Workflow, error) {
 
 	file, err := getFile(
 		ctx,
-		ghClient,
+		cd,
 		sha,
 		filename)
 	if err != nil {

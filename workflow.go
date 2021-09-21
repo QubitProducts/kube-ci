@@ -72,7 +72,9 @@ func wfName(prefix, owner, repo, branch string) string {
 	return labelSafe(owner, repo, branch, timeStr)
 }
 
-// updateWorkflow, lots of these settings shoud come in from some config.
+// updateWorkflow, this amends the workflow from the repo with the
+// details we need to track it and update the status on external
+// sources.
 func (ws *workflowSyncer) updateWorkflow(
 	wf *workflow.Workflow,
 	instID int,
@@ -225,34 +227,28 @@ func (ws *workflowSyncer) updateWorkflow(
 	wf.Annotations[annCheckRunID] = strconv.Itoa(int(*cr.ID))
 }
 
+type policyRejection struct {
+	message, log string
+}
+
 // policy enforces the main build policy:
 // - only build Draft PRs if the configured to do so.
 // - only build PRs that are targeted at one of our valid base branches
 func (ws *workflowSyncer) policy(
-	ctx context.Context,
-	updater StatusUpdater,
 	repo *github.Repository,
 	headBranch string,
 	title string,
 	prs []*github.PullRequest,
-	crID int64,
-) bool {
-
+) *policyRejection {
 	if len(prs) > 0 {
 		for _, pr := range prs {
 			// TODO(tcolgate): I think this is never actually the case for web events. External PRs aren't
 			// included
 			if *pr.Head.Repo.URL != *pr.Base.Repo.URL {
-				updater.StatusUpdate(
-					ctx,
-					crID,
-					title,
-					"refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
-					"completed",
-					"failure",
-				)
-				log.Printf("not running %s %s, as it for a PR from a non-local branch", repo.GetFullName(), headBranch)
-				return false
+				return &policyRejection{
+					message: "refusing to build non-local PR, org members can run them manually using `/kube-ci run`",
+					log:     fmt.Sprintf("not running %s %s, as it for a PR from a non-local branch", repo.GetFullName(), headBranch),
+				}
 			}
 		}
 
@@ -266,18 +262,10 @@ func (ws *workflowSyncer) policy(
 			}
 
 			if !baseMatched {
-				updater.StatusUpdate(
-					ctx,
-					crID,
-					title,
-					fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
-					"completed",
-					"failure",
-				)
-
-				log.Printf("not running %s %s, base branch did not match %s", repo.GetFullName(), headBranch, ws.config.buildBranches.String())
-
-				return false
+				return &policyRejection{
+					message: fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+					log:     fmt.Sprintf("not running %s %s, base branch did not match %s", repo.GetFullName(), headBranch, ws.config.buildBranches.String()),
+				}
 			}
 		}
 
@@ -287,36 +275,24 @@ func (ws *workflowSyncer) policy(
 		}
 
 		if onlyDrafts && !ws.config.BuildDraftPRs {
-			updater.StatusUpdate(
-				ctx,
-				crID,
-				title,
-				"auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
-				"completed",
-				"failure",
-			)
-			log.Printf("not running %s %s, as it is only used in draft PRs", repo.GetFullName(), headBranch)
-			return false
+			return &policyRejection{
+				message: "auto checks Draft PRs are disabled, you can run manually using `/kube-ci run`",
+				log:     fmt.Sprintf("not running %s %s, as it is only used in draft PRs", repo.GetFullName(), headBranch),
+			}
 		}
 
-		return true
+		return nil
 	}
 
 	// this commit was not for a PR, so we confirm we should build for the head branch it was targettted at
 	if ws.config.buildBranches != nil && !ws.config.buildBranches.MatchString(headBranch) {
-		updater.StatusUpdate(
-			ctx,
-			crID,
-			title,
-			fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
-			"completed",
-			"failure",
-		)
-		log.Printf("not running %s %s, as it target unmatched base branches", repo.GetFullName(), headBranch)
-		return false
+		return &policyRejection{
+			message: fmt.Sprintf("checks are not automatically run for base branches that do not match `%s`, you can run manually using `/kube-ci run`", ws.config.buildBranches.String()),
+			log:     fmt.Sprintf("not running %s %s, as it target unmatched base branches", repo.GetFullName(), headBranch),
+		}
 	}
 
-	return true
+	return nil
 }
 
 func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
@@ -352,7 +328,17 @@ func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
 	}
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient ghClientInterface, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error {
+type baseGHClient interface {
+	GetInstallID() int
+}
+
+type wfGHClient interface {
+	baseGHClient
+	contentDownloader
+	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
+}
+
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
 	wf, err := getWorkflow(
@@ -450,7 +436,16 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient ghClientInte
 		wf.Spec.Entrypoint = entrypoint
 	}
 
-	if !ws.policy(ctx, ghClient, repo, headbranch, title, prs, *cr.ID) {
+	if err := ws.policy(repo, headbranch, title, prs); err != nil {
+		updater.StatusUpdate(
+			ctx,
+			*cr.ID,
+			title,
+			err.message,
+			"completed",
+			"failure",
+		)
+		log.Printf(err.log)
 		return nil
 	}
 

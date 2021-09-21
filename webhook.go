@@ -12,7 +12,7 @@ import (
 )
 
 type workflowRunner interface {
-	runWorkflow(ctx context.Context, ghClient ghClientInterface, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error
+	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error
 }
 
 type pvcManager interface {
@@ -318,8 +318,7 @@ func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) 
 		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != h.appID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
-		// TODO: HeadBranch is not set for all events, need to understand why
-		//log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckRun.CheckSuite.HeadBranch, event.Sender.GetLogin())
+
 		switch *event.Action {
 		case "rerequested":
 			ev := &github.CheckSuiteEvent{
@@ -334,6 +333,7 @@ func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) 
 			return h.webhookCheckRunRequestAction(ctx, event)
 		case "created", "completed":
 			return http.StatusOK, "OK"
+
 		default:
 			log.Printf("unknown checkrun action %q ignored", *event.Action)
 			return http.StatusOK, "unknown checkrun action ignored"
@@ -344,6 +344,21 @@ func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) 
 
 	case *github.DeploymentStatusEvent:
 		return h.webhookDeploymentStatus(ctx, event)
+
+	case *github.IssuesEvent:
+		if *event.Action != "opened" {
+			return http.StatusOK, fmt.Sprintf("ignoring event type %T", event)
+		}
+		icEvent := &github.IssueCommentEvent{
+			Action: github.String("created"),
+			Repo:   event.Repo,
+			Comment: &github.IssueComment{
+				Body: event.Issue.Body,
+				User: event.Issue.User,
+			},
+			Issue: event.Issue,
+		}
+		return h.webhookIssueComment(ctx, icEvent)
 
 	case *github.IssueCommentEvent:
 		return h.webhookIssueComment(ctx, event)
