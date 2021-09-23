@@ -226,12 +226,40 @@ func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 	return http.StatusOK, ""
 }
 
+func (h *hookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context, event *github.CheckRunEvent) (int, string) {
+	id := event.RequestedAction.Identifier
+	org := *event.GetRepo().GetOwner().Login
+	repo := *event.Repo.Name
+
+	branch := ""
+	if id == "clearCacheBranch" {
+		branch = *event.CheckRun.CheckSuite.HeadBranch
+	}
+
+	err := h.storage.deletePVC(
+		org,
+		repo,
+		branch,
+		"cache clear requested by "+*event.Sender.Login,
+	)
+	if err != nil {
+		log.Printf("error while deleting cache, %v", err)
+	}
+
+	return 200, "OK"
+}
+
 func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
 	repo := *event.Repo.Name
 	org := event.Repo.Owner.GetName()
 	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
+	}
+
+	if event.RequestedAction.Identifier == "clearCache" ||
+		event.RequestedAction.Identifier == "clearCacheBranch" {
+		return h.webhookCheckRunRequestActionClearCache(ctx, event)
 	}
 
 	/*

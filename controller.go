@@ -535,13 +535,39 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(ctx, newWf, metav1.UpdateOptions{})
 }
 
+func getWFVolumeScope(wf *workflow.Workflow) string {
+	if wf.Annotations == nil {
+		return scopeNone
+	}
+	switch wf.Annotations[annCacheVolumeScope] {
+	case scopeBranch:
+		return scopeBranch
+	case scopeProject:
+		return scopeProject
+	default:
+		return scopeNone
+	}
+}
+
 func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, cri *crInfo, allAnns []*github.CheckRunAnnotation, title, summary, text *string) error {
 	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
 	if err != nil {
 		return err
 	}
 
-	var actions []*github.CheckRunAction
+	clearCacheAction := "clearCache"
+	if getWFVolumeScope(wf) == scopeBranch {
+		clearCacheAction = "clearCacheBranch"
+	}
+
+	actions := []*github.CheckRunAction{
+		{
+			Label:       "Clear Cache",
+			Description: "delete the cache volume for this build",
+			Identifier:  clearCacheAction,
+		},
+	}
+
 	/*
 		if wf.Status.Phase == workflow.NodeSucceeded {
 				actions = []*github.CheckRunAction{

@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-github/v32/github"
 )
 
+//lint:ignore U1000 this will be used again
 type checkRunUpdateRecorder struct {
 	org     string
 	repo    string

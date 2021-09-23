@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-github/v32/github"
 )
 
+//lint:ignore U1000 this will be used once we need to mock the GH client
 type testGHClientInterface struct {
 	instID int
 	t      *testing.T
@@ -69,6 +70,7 @@ func (tgi *testGHClientInterface) CreateIssueComment(ctx context.Context, issueI
 	panic("not implemented") // TODO: Implement
 }
 
+//lint:ignore U1000 this will be used once we need to mock the GH client
 type testGHClientSrc struct {
 }
 
