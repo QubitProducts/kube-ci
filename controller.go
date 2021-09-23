@@ -20,9 +20,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -34,7 +32,6 @@ import (
 	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
 	listers "github.com/argoproj/argo-workflows/v3/pkg/client/listers/workflow/v1alpha1"
 
-	"github.com/bradleyfalzon/ghinstallation"
 	"github.com/google/go-github/v32/github"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -70,77 +67,6 @@ var (
 	labelBranch    = "branch"
 	labelScope     = "scope"
 )
-
-type githubKeyStore struct {
-	baseTransport http.RoundTripper
-	appID         int64
-	ids           []int
-	key           []byte
-	orgs          *regexp.Regexp
-}
-
-type ghClientInterface interface {
-	GetInstallID() int
-	GetRef(ctx context.Context, ref string) (*github.Reference, error)
-	UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error)
-	StatusUpdate(
-		ctx context.Context,
-		crID int64,
-		title string,
-		msg string,
-		status string,
-		conclusion string,
-	)
-	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
-	CreateDeployment(ctx context.Context, req *github.DeploymentRequest) (*github.Deployment, error)
-	CreateDeploymentStatus(ctx context.Context, id int64, req *github.DeploymentStatusRequest) (*github.DeploymentStatus, error)
-	IsMember(ctx context.Context, user string) (bool, error)
-	DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
-	CreateFile(ctx context.Context, filepath string, opts *github.RepositoryContentFileOptions) error
-	GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error)
-	GetBranch(ctx context.Context, branch string) (*github.Branch, error)
-	GetPullRequest(ctx context.Context, prid int) (*github.PullRequest, error)
-	CreateIssueComment(ctx context.Context, issueID int, opts *github.IssueComment) error
-}
-
-func (ks *githubKeyStore) getClient(org string, installID int, repo string) (ghClientInterface, error) {
-	validID := false
-	for _, id := range ks.ids {
-		if installID == id {
-			validID = true
-			break
-		}
-	}
-
-	if len(ks.ids) > 0 && !validID {
-		return nil, fmt.Errorf("unknown installation %d", installID)
-	}
-
-	if ks.orgs != nil && !ks.orgs.MatchString(org) {
-		return nil, fmt.Errorf("refusing event from untrusted org %s", org)
-	}
-
-	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, int64(installID), ks.key)
-	if err != nil {
-		return nil, err
-	}
-
-	ghc, err := github.NewClient(&http.Client{Transport: itr}), nil
-	if err != nil {
-		return nil, err
-	}
-
-	return &repoClient{
-		installID: installID,
-		org:       org,
-		client:    ghc,
-		repo:      repo,
-	}, nil
-}
-
-type githubClientSource interface {
-	getClient(org string, installID int, repo string) (ghClientInterface, error)
-}
 
 // CacheSpec lets you choose the default settings for a
 // per-job cache volume.
@@ -257,12 +183,12 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
-	cri, err := crInfoFromWorkflow(wf)
-	if err != nil {
+	if !wf.Status.FinishedAt.IsZero() {
 		return
 	}
 
-	if !wf.Status.FinishedAt.IsZero() {
+	cri, err := crInfoFromWorkflow(wf)
+	if err != nil {
 		return
 	}
 
@@ -325,279 +251,6 @@ func newWorkflowSyncer(
 	})
 
 	return syncer
-}
-
-func (ws *workflowSyncer) runWorker() {
-	for ws.process() {
-	}
-
-	log.Print("worker stopped")
-}
-
-func (ws *workflowSyncer) process() bool {
-	obj, shutdown := ws.workqueue.Get()
-
-	if shutdown {
-		return false
-	}
-
-	defer ws.workqueue.Done(obj)
-
-	var key string
-	var ok bool
-	if key, ok = obj.(string); !ok {
-		ws.workqueue.Forget(obj)
-		runtime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
-		return true
-	}
-
-	namespace, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		ws.workqueue.Forget(obj)
-		runtime.HandleError(fmt.Errorf("couldn't split workflow cache key %q, %v", key, err))
-		return true
-	}
-
-	wf, err := ws.lister.Workflows(namespace).Get(name)
-	if err != nil {
-		ws.workqueue.Forget(obj)
-		runtime.HandleError(fmt.Errorf("couldn't get workflow %q, %v ", key, err))
-		return true
-	}
-
-	err = ws.sync(wf)
-	if err != nil {
-		runtime.HandleError(err)
-		return true
-	}
-
-	ws.workqueue.Forget(obj)
-
-	return true
-}
-
-type crInfo struct {
-	orgName  string
-	repoName string
-	instID   int
-
-	headSHA    string
-	headBranch string
-
-	checkRunName string
-	checkRunID   int64
-}
-
-func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
-	instIDStr, ok := wf.Annotations[annInstID]
-	if !ok {
-		return nil, fmt.Errorf("could not get github installation id for  %s/%s", wf.Namespace, wf.Name)
-	}
-
-	instID, err := strconv.Atoi(instIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("could not convert installation id for %s/%s to int", wf.Namespace, wf.Name)
-	}
-
-	headSHA, ok := wf.Annotations[annCommit]
-	if !ok {
-		return nil, fmt.Errorf("could not get commit sha for %s/%s", wf.Namespace, wf.Name)
-	}
-	headBranch, ok := wf.Annotations[annBranch]
-	if !ok {
-		return nil, fmt.Errorf("could not get commit branch for %s/%s", wf.Namespace, wf.Name)
-	}
-	orgName, ok := wf.Annotations[annOrg]
-	if !ok {
-		return nil, fmt.Errorf("could not get github org for %s/%s", wf.Namespace, wf.Name)
-	}
-	repoName, ok := wf.Annotations[annRepo]
-	if !ok {
-		return nil, fmt.Errorf("could not get github repo name for %s/%s", wf.Namespace, wf.Name)
-	}
-	checkRunName, ok := wf.Annotations[annCheckRunName]
-	if !ok {
-		return nil, fmt.Errorf("could not get check run name for %s/%s", wf.Namespace, wf.Name)
-	}
-
-	checkRunIDStr, ok := wf.Annotations[annCheckRunID]
-	if !ok {
-		return nil, fmt.Errorf("could not get check run id for  %s/%s", wf.Namespace, wf.Name)
-	}
-	checkRunID, err := strconv.Atoi(checkRunIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("could not convert check  run id for %s/%s to int", wf.Namespace, wf.Name)
-	}
-
-	return &crInfo{
-		headSHA:      headSHA,
-		instID:       instID,
-		headBranch:   headBranch,
-		orgName:      orgName,
-		repoName:     repoName,
-		checkRunName: checkRunName,
-		checkRunID:   int64(checkRunID),
-	}, nil
-}
-
-func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workflow) (*workflow.Workflow, error) {
-	newWf := wf.DeepCopy()
-
-	cr, err := crInfoFromWorkflow(wf)
-	if err != nil {
-		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
-	}
-
-	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName)
-	if err != nil {
-		return nil, err
-	}
-
-	newCR, err := ghClient.CreateCheckRun(context.TODO(),
-		github.CreateCheckRunOptions{
-			Name:    checkRunName,
-			HeadSHA: cr.headSHA,
-			Status:  initialCheckRunStatus,
-			Output: &github.CheckRunOutput{
-				Title:   github.String("Workflow Setup"),
-				Summary: github.String("Creating workflow"),
-			},
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed creating new check run, %w", err)
-	}
-
-	/*
-		repo := &github.Repository{
-			Owner: &github.User{
-				Login: github.String(cr.orgName),
-			},
-			Name: github.String(cr.repoName),
-		}
-	*/
-
-	ghClient.StatusUpdate(
-		context.Background(),
-		*newCR.ID,
-		"Workflow Setup",
-		"Creating workflow",
-		"queued",
-		"",
-	)
-
-	newWf.Annotations[annAnnotationsPublished] = "false"
-	newWf.Annotations[annCheckRunName] = newCR.GetName()
-	newWf.Annotations[annCheckRunID] = strconv.Itoa(int(newCR.GetID()))
-
-	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(ctx, newWf, metav1.UpdateOptions{})
-}
-
-// completeCheckRun is used to publish any annotations found in the logs from a check run.
-// There are a bunch of reasons this could fail.
-func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, text *string, wf *workflow.Workflow, cri *crInfo) {
-	if wf.Status.Phase != workflow.WorkflowFailed &&
-		wf.Status.Phase != workflow.WorkflowSucceeded {
-		return
-	}
-
-	var allAnns []*github.CheckRunAnnotation
-	for _, n := range wf.Status.Nodes {
-		if n.Type != "Pod" {
-			continue
-		}
-		logr, err := getPodLogs(ctx, ws.kubeclient, n.ID, wf.Namespace, "main")
-		if err != nil {
-			log.Printf("getting pod logs failed, %v", err)
-			continue
-		}
-		anns, err := parseAnnotations(logr, "")
-		if err != nil {
-			log.Printf("parsing annotations failed, %v", err)
-			return
-		}
-		allAnns = append(allAnns, anns...)
-	}
-
-	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
-	if err != nil {
-		return
-	}
-
-	var actions []*github.CheckRunAction
-	/*
-		if wf.Status.Phase == workflow.NodeSucceeded {
-				actions = []*github.CheckRunAction{
-					{
-						Label:       "Deploy Me",
-						Description: "Do the thing ",
-						Identifier:  "deploy",
-					},
-				}
-		}
-	*/
-
-	_, err = ghClient.UpdateCheckRun(
-		context.Background(),
-		cri.checkRunID,
-		github.UpdateCheckRunOptions{
-			Name:    cri.checkRunName,
-			HeadSHA: &cri.headSHA,
-			Actions: actions,
-		},
-	)
-	if err != nil {
-		log.Printf("error, failed updating check run status, %v", err)
-	}
-
-	batchSize := 50 // github API allows 50 at a time
-	for i := 0; i < len(allAnns); i += batchSize {
-		start := i
-		end := i + batchSize
-		if end > len(allAnns) {
-			end = len(allAnns)
-		}
-		anns := allAnns[start:end]
-		_, err = ghClient.UpdateCheckRun(
-			context.Background(),
-			cri.checkRunID,
-			github.UpdateCheckRunOptions{
-				Name:    cri.checkRunName,
-				HeadSHA: &cri.headSHA,
-
-				Output: &github.CheckRunOutput{
-					Title:       title,
-					Summary:     summary,
-					Text:        text,
-					Annotations: anns,
-				},
-				Actions: actions,
-			},
-		)
-		if err != nil {
-			log.Printf("upload annotations for %s/%s failed, %v", wf.Namespace, wf.Name, err)
-
-		}
-	}
-
-	// We need to update the API object so that we know we've published the
-	// logs, we'll grab the latest one incase it has changed since we got here.
-	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Get(ctx, wf.Name, metav1.GetOptions{})
-	if err != nil {
-		log.Printf("getting workflow %s/%s for annotations update failed, %v", newwf.Namespace, newwf.Name, err)
-		return
-	}
-
-	upwf := newwf.DeepCopy()
-	if upwf.Annotations == nil {
-		upwf.Annotations = map[string]string{}
-	}
-	upwf.Annotations[annAnnotationsPublished] = "true"
-
-	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Update(ctx, upwf, metav1.UpdateOptions{})
-	if err != nil {
-		log.Printf("workflow %s/%s update for annotations update failed, %v", upwf.Namespace, upwf.Name, err)
-	}
 }
 
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
@@ -723,6 +376,278 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	}
 
 	return nil
+}
+
+func (ws *workflowSyncer) process() bool {
+	obj, shutdown := ws.workqueue.Get()
+
+	if shutdown {
+		return false
+	}
+
+	defer ws.workqueue.Done(obj)
+
+	var key string
+	var ok bool
+	if key, ok = obj.(string); !ok {
+		ws.workqueue.Forget(obj)
+		runtime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
+		return true
+	}
+
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		ws.workqueue.Forget(obj)
+		runtime.HandleError(fmt.Errorf("couldn't split workflow cache key %q, %v", key, err))
+		return true
+	}
+
+	wf, err := ws.lister.Workflows(namespace).Get(name)
+	if err != nil {
+		ws.workqueue.Forget(obj)
+		runtime.HandleError(fmt.Errorf("couldn't get workflow %q, %v ", key, err))
+		return true
+	}
+
+	err = ws.sync(wf)
+	if err != nil {
+		runtime.HandleError(err)
+		return true
+	}
+
+	ws.workqueue.Forget(obj)
+
+	return true
+}
+
+func (ws *workflowSyncer) runWorker() {
+	for ws.process() {
+	}
+
+	log.Print("worker stopped")
+}
+
+type crInfo struct {
+	orgName  string
+	repoName string
+	instID   int
+
+	headSHA    string
+	headBranch string
+
+	checkRunName string
+	checkRunID   int64
+}
+
+func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
+	instIDStr, ok := wf.Annotations[annInstID]
+	if !ok {
+		return nil, fmt.Errorf("could not get github installation id for  %s/%s", wf.Namespace, wf.Name)
+	}
+
+	instID, err := strconv.Atoi(instIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("could not convert installation id for %s/%s to int", wf.Namespace, wf.Name)
+	}
+
+	headSHA, ok := wf.Annotations[annCommit]
+	if !ok {
+		return nil, fmt.Errorf("could not get commit sha for %s/%s", wf.Namespace, wf.Name)
+	}
+	headBranch, ok := wf.Annotations[annBranch]
+	if !ok {
+		return nil, fmt.Errorf("could not get commit branch for %s/%s", wf.Namespace, wf.Name)
+	}
+	orgName, ok := wf.Annotations[annOrg]
+	if !ok {
+		return nil, fmt.Errorf("could not get github org for %s/%s", wf.Namespace, wf.Name)
+	}
+	repoName, ok := wf.Annotations[annRepo]
+	if !ok {
+		return nil, fmt.Errorf("could not get github repo name for %s/%s", wf.Namespace, wf.Name)
+	}
+	checkRunName, ok := wf.Annotations[annCheckRunName]
+	if !ok {
+		return nil, fmt.Errorf("could not get check run name for %s/%s", wf.Namespace, wf.Name)
+	}
+
+	checkRunIDStr, ok := wf.Annotations[annCheckRunID]
+	if !ok {
+		return nil, fmt.Errorf("could not get check run id for  %s/%s", wf.Namespace, wf.Name)
+	}
+	checkRunID, err := strconv.Atoi(checkRunIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("could not convert check  run id for %s/%s to int", wf.Namespace, wf.Name)
+	}
+
+	return &crInfo{
+		headSHA:      headSHA,
+		instID:       instID,
+		headBranch:   headBranch,
+		orgName:      orgName,
+		repoName:     repoName,
+		checkRunName: checkRunName,
+		checkRunID:   int64(checkRunID),
+	}, nil
+}
+
+func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workflow) (*workflow.Workflow, error) {
+	newWf := wf.DeepCopy()
+
+	cr, err := crInfoFromWorkflow(wf)
+	if err != nil {
+		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
+	}
+
+	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName)
+	if err != nil {
+		return nil, err
+	}
+
+	newCR, err := ghClient.CreateCheckRun(context.TODO(),
+		github.CreateCheckRunOptions{
+			Name:    checkRunName,
+			HeadSHA: cr.headSHA,
+			Status:  initialCheckRunStatus,
+			Output: &github.CheckRunOutput{
+				Title:   github.String("Workflow Setup"),
+				Summary: github.String("Creating workflow"),
+			},
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating new check run, %w", err)
+	}
+
+	ghClient.StatusUpdate(
+		context.Background(),
+		*newCR.ID,
+		"Workflow Setup",
+		"Creating workflow",
+		"queued",
+		"",
+	)
+
+	newWf.Annotations[annAnnotationsPublished] = "false"
+	newWf.Annotations[annCheckRunName] = newCR.GetName()
+	newWf.Annotations[annCheckRunID] = strconv.Itoa(int(newCR.GetID()))
+
+	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(ctx, newWf, metav1.UpdateOptions{})
+}
+
+func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, cri *crInfo, allAnns []*github.CheckRunAnnotation, title, summary, text *string) error {
+	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
+	if err != nil {
+		return err
+	}
+
+	var actions []*github.CheckRunAction
+	/*
+		if wf.Status.Phase == workflow.NodeSucceeded {
+				actions = []*github.CheckRunAction{
+					{
+						Label:       "Deploy Me",
+						Description: "Do the thing ",
+						Identifier:  "deploy",
+					},
+				}
+		}
+	*/
+
+	_, err = ghClient.UpdateCheckRun(
+		context.Background(),
+		cri.checkRunID,
+		github.UpdateCheckRunOptions{
+			Name:    cri.checkRunName,
+			HeadSHA: &cri.headSHA,
+			Actions: actions,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error, failed updating check run status, %w", err)
+	}
+
+	batchSize := 50 // github API allows 50 at a time
+	for i := 0; i < len(allAnns); i += batchSize {
+		start := i
+		end := i + batchSize
+		if end > len(allAnns) {
+			end = len(allAnns)
+		}
+		anns := allAnns[start:end]
+		_, err = ghClient.UpdateCheckRun(
+			context.Background(),
+			cri.checkRunID,
+			github.UpdateCheckRunOptions{
+				Name:    cri.checkRunName,
+				HeadSHA: &cri.headSHA,
+
+				Output: &github.CheckRunOutput{
+					Title:       title,
+					Summary:     summary,
+					Text:        text,
+					Annotations: anns,
+				},
+				Actions: actions,
+			},
+		)
+		if err != nil {
+			log.Printf("upload annotations for %s/%s failed, %v", wf.Namespace, wf.Name, err)
+		}
+	}
+	return nil
+}
+
+// completeCheckRun is used to publish any annotations found in the logs from a check run.
+// There are a bunch of reasons this could fail.
+func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, text *string, wf *workflow.Workflow, cri *crInfo) {
+	if wf.Status.Phase != workflow.WorkflowFailed &&
+		wf.Status.Phase != workflow.WorkflowSucceeded {
+		return
+	}
+
+	var allAnns []*github.CheckRunAnnotation
+	for _, n := range wf.Status.Nodes {
+		if n.Type != "Pod" {
+			continue
+		}
+		logr, err := getPodLogs(ctx, ws.kubeclient, n.ID, wf.Namespace, "main")
+		if err != nil {
+			log.Printf("getting pod logs failed, %v", err)
+			continue
+		}
+		anns, err := parseAnnotations(logr, "")
+		if err != nil {
+			log.Printf("parsing annotations failed, %v", err)
+			continue
+		}
+		allAnns = append(allAnns, anns...)
+	}
+
+	err := ws.ghCompleteCheckRun(wf, cri, allAnns, title, summary, text)
+	if err != nil {
+		log.Printf("completeing github checkrun for %s/%s failed, %v", wf.Namespace, wf.Name, err)
+		return
+	}
+
+	// We need to update the API object so that we know we've published the
+	// logs, we'll grab the latest one incase it has changed since we got here.
+	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Get(ctx, wf.Name, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("getting workflow %s/%s for annotations update failed, %v", newwf.Namespace, newwf.Name, err)
+		return
+	}
+
+	upwf := newwf.DeepCopy()
+	if upwf.Annotations == nil {
+		upwf.Annotations = map[string]string{}
+	}
+	upwf.Annotations[annAnnotationsPublished] = "true"
+
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Update(ctx, upwf, metav1.UpdateOptions{})
+	if err != nil {
+		log.Printf("workflow %s/%s update for annotations update failed, %v", upwf.Namespace, upwf.Name, err)
+	}
 }
 
 func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {
