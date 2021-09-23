@@ -46,10 +46,10 @@ func (h *hookHandler) webhookIssueComment(ctx context.Context, event *github.Iss
 		return http.StatusOK, ""
 	}
 
-	org := event.GetRepo().GetOwner().Login
+	org := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
 
-	client, err := h.clients.getClient(*org, int(*event.Installation.ID), repo)
+	client, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		log.Printf("error creating github client, %v", err)
 		return http.StatusBadRequest, "failed to create github client"
@@ -64,8 +64,8 @@ func (h *hookHandler) webhookIssueComment(ctx context.Context, event *github.Iss
 }
 
 func (h *hookHandler) webhookDeleteBranchEvent(ctx context.Context, event *github.DeleteEvent) (int, string) {
-	org := *event.GetRepo().GetOwner().Login
-	repo := *event.Repo.Name
+	org := event.GetRepo().GetOwner().GetLogin()
+	repo := event.GetRepo().GetName()
 	branch := event.GetRef()
 	err := h.storage.deletePVC(
 		org,
@@ -80,8 +80,8 @@ func (h *hookHandler) webhookDeleteBranchEvent(ctx context.Context, event *githu
 }
 
 func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *github.RepositoryEvent) (int, string) {
-	org := *event.GetRepo().GetOwner().Login
-	repo := *event.Repo.Name
+	org := event.GetRepo().GetOwner().GetLogin()
+	repo := event.GetRepo().GetName()
 	err := h.storage.deletePVC(
 		org,
 		repo,
@@ -97,10 +97,10 @@ func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *g
 }
 
 func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
-	org := event.GetRepo().GetOwner().Login
+	org := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
 
-	ghClient, err := h.clients.getClient(*org, int(*event.Installation.ID), repo)
+	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, "failed to create github client"
 	}
@@ -162,8 +162,8 @@ func (h *hookHandler) webhookDeploymentStatus(ctx context.Context, event *github
 }
 
 func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
-	owner := event.Repo.Owner.GetLogin()
-	repo := event.Repo.GetName()
+	owner := event.GetRepo().GetOwner().GetLogin()
+	repo := event.GetRepo().GetName()
 	ghClient, err := h.clients.getClient(owner, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
@@ -200,8 +200,8 @@ func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 }
 
 func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
-	org := *event.Org.Login
-	repo := event.Repo.GetName()
+	org := event.GetOrg().GetLogin()
+	repo := event.GetRepo().GetName()
 	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
@@ -228,7 +228,7 @@ func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 
 func (h *hookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context, event *github.CheckRunEvent) (int, string) {
 	id := event.RequestedAction.Identifier
-	org := *event.GetRepo().GetOwner().Login
+	org := event.GetRepo().GetOwner().GetLogin()
 	repo := *event.Repo.Name
 
 	branch := ""
@@ -250,8 +250,8 @@ func (h *hookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context
 }
 
 func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
-	repo := *event.Repo.Name
-	org := event.Repo.Owner.GetName()
+	repo := event.GetRepo().GetName()
+	org := event.GetRepo().GetOwner().GetLogin()
 	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()

@@ -85,8 +85,8 @@ func (ws *workflowSyncer) updateWorkflow(
 	headRefName string,
 	cr *github.CheckRun) {
 
-	owner := *repo.Owner.Login
-	repoName := *repo.Name
+	owner := repo.GetOwner().GetLogin()
+	repoName := repo.GetName()
 	gitURL := repo.GetGitURL()
 	sshURL := repo.GetSSHURL()
 	httpsURL := repo.GetCloneURL()
