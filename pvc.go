@@ -260,11 +260,16 @@ func (sm *k8sStorageManager) deletePVC(
 			continue
 		}
 		for _, p := range pods {
-			err := sm.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(ctx, pvc.GetName(), dopts)
+			err := sm.kubeclient.CoreV1().Pods(p.GetNamespace()).Delete(ctx, p.GetName(), dopts)
 			if err != nil {
 				log.Printf("failed to delete pod %s/%s using pvc %s/%s, %v", p.GetNamespace(), p.GetName(), pvc.GetNamespace(), pvc.GetName(), err)
 				continue
 			}
+			log.Printf("deleted pod %s/%s using pvc %s/%s",
+				p.GetNamespace(),
+				p.GetName(),
+				pvc.GetNamespace(),
+				pvc.GetName())
 		}
 	}
 
