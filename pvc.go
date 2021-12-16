@@ -160,6 +160,29 @@ func (sm *k8sStorageManager) ensurePVC(
 	return nil
 }
 
+func (sm *k8sStorageManager) getPodsForPVC(ctx context.Context, ns, pvcName string) ([]corev1.Pod, error) {
+	// just in case
+	if ns == "" || pvcName == "" {
+		return nil, errors.New("pvc namespace or name cannot be empty strings")
+	}
+	nsPods, err := sm.kubeclient.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return []corev1.Pod{}, err
+	}
+
+	var pods []corev1.Pod
+
+	for _, pod := range nsPods.Items {
+		for _, volume := range pod.Spec.Volumes {
+			if volume.VolumeSource.PersistentVolumeClaim != nil && volume.VolumeSource.PersistentVolumeClaim.ClaimName == pvcName {
+				pods = append(pods, pod)
+			}
+		}
+	}
+
+	return pods, nil
+}
+
 // when a branch or repo gets deleted (or archived), we delete any pvc
 // associated with it. If branch is not "", only that branch is deleted.
 func (sm *k8sStorageManager) deletePVC(
@@ -186,8 +209,6 @@ func (sm *k8sStorageManager) deletePVC(
 		return fmt.Errorf("built nil selector! set = %#v", ls)
 	}
 
-	log.Printf("selector: %#v", sel)
-
 	opt := metav1.ListOptions{
 		LabelSelector: sel,
 	}
@@ -210,7 +231,14 @@ func (sm *k8sStorageManager) deletePVC(
 				continue
 			}
 		}
-		err := sm.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(ctx, pvc.GetName(), metav1.DeleteOptions{})
+
+		grace := int64(0)
+		policy := metav1.DeletePropagationBackground
+		dopts := metav1.DeleteOptions{
+			GracePeriodSeconds: &grace,
+			PropagationPolicy:  &policy,
+		}
+		err := sm.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(ctx, pvc.GetName(), dopts)
 		if err != nil {
 			log.Printf("failed to delete pvc %s/%s, %v", pvc.GetNamespace(), pvc.GetName(), err)
 			continue
@@ -221,6 +249,23 @@ func (sm *k8sStorageManager) deletePVC(
 			action,
 			org,
 			repo)
+
+		// We should probably cancel in-progress workflows
+
+		// We need to delete any pods that have the PVC listed. Will not delete the
+		// pvc until these pods are gone (even if they are not running)
+		pods, err := sm.getPodsForPVC(ctx, pvc.GetNamespace(), pvc.GetName())
+		if err != nil {
+			log.Printf("failed to list pods for pvc %s/%s, %v", pvc.GetNamespace(), pvc.GetName(), err)
+			continue
+		}
+		for _, p := range pods {
+			err := sm.kubeclient.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Delete(ctx, pvc.GetName(), dopts)
+			if err != nil {
+				log.Printf("failed to delete pod %s/%s using pvc %s/%s, %v", p.GetNamespace(), p.GetName(), pvc.GetNamespace(), pvc.GetName(), err)
+				continue
+			}
+		}
 	}
 
 	return nil
