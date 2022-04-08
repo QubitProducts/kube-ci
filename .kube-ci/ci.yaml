@@ -2,29 +2,22 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   annotations:
-    "kube-ci.qutics.com/cacheScope": "project"
-    "kube-ci.qutics.com/cacheSize": "20Gi"
+    kube-ci.qutics.com/cacheScope: project
+    kube-ci.qutics.com/cacheSize: 20Gi
+  creationTimestamp: null
 spec:
+  arguments: {}
   entrypoint: test
-  volumes:
-  - name: build-cache
-    persistentVolumeClaim:
-      claimName: "{{workflow.parameters.cacheVolumeClaimName}}"
   templates:
-  - name: test
+  - inputs: {}
+    metadata: {}
+    name: test
+    outputs: {}
     steps:
-    - - name: test
+    - - arguments: {}
+        name: test
         template: test-node
-  - name: test-node
-    inputs:
-      artifacts:
-      - name: code
-        path: /src
-        git:
-          repo: "{{workflow.parameters.repo_git_url}}"
-          revision: "{{workflow.parameters.revision}}"
-    container:
-      image: "golang:1.17"
+  - container:
       args:
       - sh
       - -c
@@ -35,10 +28,33 @@ spec:
         go vet .
         go run honnef.co/go/tools/cmd/staticcheck .
         go test -v
-      workingDir: /src
+      command:
+      - /bin/sh
+      - -c
       env:
       - name: GOPROXY
         value: http://gomod-athens:8080
+      image: golang:1.17
+      name: ""
+      resources: {}
       volumeMounts:
-      - name: build-cache
-        mountPath: /cache
+      - mountPath: /cache
+        name: build-cache
+      workingDir: /src
+    inputs:
+      artifacts:
+      - git:
+          repo: '{{workflow.parameters.repo_git_url}}'
+          revision: '{{workflow.parameters.revision}}'
+        name: code
+        path: /src
+    metadata: {}
+    name: test-node
+    outputs: {}
+  volumes:
+  - name: build-cache
+    persistentVolumeClaim:
+      claimName: '{{workflow.parameters.cacheVolumeClaimName}}'
+status:
+  finishedAt: null
+  startedAt: null
