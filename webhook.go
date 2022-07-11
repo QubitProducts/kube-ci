@@ -157,7 +157,7 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 }
 
 func (h *hookHandler) webhookDeploymentStatus(ctx context.Context, event *github.DeploymentStatusEvent) (int, string) {
-	log.Printf("status: %v is %v", *event.DeploymentStatus.ID, *event.DeploymentStatus.State)
+	log.Printf("deploy status: %v is %v", *event.DeploymentStatus.ID, *event.DeploymentStatus.State)
 	return http.StatusOK, ""
 }
 
@@ -262,31 +262,14 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 		return h.webhookCheckRunRequestActionClearCache(ctx, event)
 	}
 
-	/*
-			// All is good (return an error to fail)
-			ciFile := ".kube-ci/deploy.yaml"
+	action := event.GetAction()
+	parts := strings.Split(action, "#")
+	if len(parts) != 2 {
+		return http.StatusBadRequest, "malformed action, want target#env"
+	}
+	action = parts[0]
+	env := parts[1]
 
-			wf, err := ws.getWorkflow(
-				ctx,
-				ghClient,
-				*event.Org.Login,
-				*event.Repo.Name,
-				*event.CheckRun.HeadSHA,
-				ciFile,
-			)
-
-		if os.IsNotExist(err) {
-			log.Printf("no %s in %s/%s (%s)",
-				ciFile,
-				*event.Org.Login,
-				*event.Repo.Name,
-				*event.CheckRun.HeadSHA,
-			)
-			return http.StatusOK, ""
-		}
-	*/
-
-	env := "staging"
 	msg := fmt.Sprintf("deploying the thing to %v", env)
 	dep, err := ghClient.CreateDeployment(
 		ctx,
@@ -294,6 +277,7 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 			Ref:         event.CheckRun.HeadSHA,
 			Description: &msg,
 			Environment: &env,
+			Task:        &action,
 		},
 	)
 

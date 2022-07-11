@@ -62,6 +62,8 @@ var (
 	annRunBranch = "kube-ci.qutics.com/runForBranch"
 	annRunTag    = "kube-ci.qutics.com/runForTag"
 
+	annFeatures = "kube-ci.qutics.com/features"
+
 	labelManagedBy = "managedBy"
 	labelWFType    = "wfType"
 	labelOrg       = "org"
@@ -602,11 +604,26 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 	}
 
 	if wf.Status.Phase == workflow.WorkflowSucceeded {
-		actions = append(actions, &github.CheckRunAction{
-			Label:       "Deploy Me",
-			Description: "Deploy to  ",
-			Identifier:  "deploy",
-		})
+		doDeployActions := false
+		for _, f := range strings.Split(wf.Annotations[annFeatures], ",") {
+			if f == "deploys" {
+				doDeployActions = true
+			}
+		}
+
+		if doDeployActions {
+			for _, t := range wf.Spec.Templates {
+				for _, env := range []string{"staging"} {
+					if ws.config.deployTemplates.MatchString(t.Name) {
+						actions = append(actions, &github.CheckRunAction{
+							Label:       fmt.Sprintf("%s - %s", t.Name, env),
+							Description: fmt.Sprintf("Run %s for environment %s", t.Name, env),
+							Identifier:  fmt.Sprintf("%s#%s", t.Name, env),
+						})
+					}
+				}
+			}
+		}
 	}
 
 	_, err = ghClient.UpdateCheckRun(

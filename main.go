@@ -209,6 +209,11 @@ func main() {
 		log.Fatalf("failed to compile branches regexp, %v", err)
 	}
 
+	wfconfig.deployTemplates, err = regexp.Compile(wfconfig.DeployTemplates)
+	if err != nil {
+		log.Fatalf("failed to compile deployTemplates regexp, %v", err)
+	}
+
 	ghSrc := &githubKeyStore{
 		baseTransport: http.DefaultTransport,
 		appID:         *appID,
