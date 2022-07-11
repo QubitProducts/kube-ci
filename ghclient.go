@@ -50,37 +50,39 @@ func (r *repoClient) UpdateCheckRun(ctx context.Context, id int64, upd github.Up
 
 func (r *repoClient) StatusUpdate(
 	ctx context.Context,
-	crID int64,
+	info *githubInfo,
 	title string,
 	msg string,
 	status string,
 	conclusion string,
 ) {
 	log.Print(msg)
-	opts := github.UpdateCheckRunOptions{
-		Name:   checkRunName,
-		Status: &status,
-		Output: &github.CheckRunOutput{
-			Title:   &title,
-			Summary: &msg,
-		},
-	}
-
-	if conclusion != "" {
-		opts.Conclusion = &conclusion
-		opts.CompletedAt = &github.Timestamp{
-			Time: time.Now(),
+	if info.checkRunID != 0 {
+		opts := github.UpdateCheckRunOptions{
+			Name:   checkRunName,
+			Status: &status,
+			Output: &github.CheckRunOutput{
+				Title:   &title,
+				Summary: &msg,
+			},
 		}
-	}
-	_, _, err := r.client.Checks.UpdateCheckRun(
-		ctx,
-		r.org,
-		r.repo,
-		crID,
-		opts)
 
-	if err != nil {
-		log.Printf("Update of aborted check run failed, %v", err)
+		if conclusion != "" {
+			opts.Conclusion = &conclusion
+			opts.CompletedAt = &github.Timestamp{
+				Time: time.Now(),
+			}
+		}
+		_, _, err := r.client.Checks.UpdateCheckRun(
+			ctx,
+			r.org,
+			r.repo,
+			info.checkRunID,
+			opts)
+
+		if err != nil {
+			log.Printf("Update of aborted check run failed, %v", err)
+		}
 	}
 }
 

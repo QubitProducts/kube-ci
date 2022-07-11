@@ -17,7 +17,7 @@ type ghClientInterface interface {
 	UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error)
 	StatusUpdate(
 		ctx context.Context,
-		crID int64,
+		info *githubInfo,
 		title string,
 		msg string,
 		status string,

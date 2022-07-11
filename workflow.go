@@ -20,7 +20,7 @@ import (
 type StatusUpdater interface {
 	StatusUpdate(
 		ctx context.Context,
-		crID int64,
+		info *githubInfo,
 		title string,
 		msg string,
 		status string,
@@ -385,9 +385,17 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		return fmt.Errorf("creating check run failed, %w", err)
 	}
 
+	info := &githubInfo{
+		orgName:      org,
+		repoName:     name,
+		instID:       ghClient.GetInstallID(),
+		checkRunID:   cr.GetID(),
+		checkRunName: checkRunName,
+	}
+
 	updater.StatusUpdate(
 		ctx,
-		*cr.ID,
+		info,
 		title,
 		"Creating Workflow",
 		"queued",
@@ -398,7 +406,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
 		updater.StatusUpdate(
 			ctx,
-			*cr.ID,
+			info,
 			title,
 			msg,
 			"completed",
@@ -425,7 +433,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			err = fmt.Errorf("no entrypoing %q found in workflow templates", entrypoint)
 			updater.StatusUpdate(
 				ctx,
-				*cr.ID,
+				info,
 				title,
 				err.Error(),
 				"completed",
@@ -439,7 +447,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	if err := ws.policy(repo, headbranch, title, prs); err != nil {
 		updater.StatusUpdate(
 			ctx,
-			*cr.ID,
+			info,
 			title,
 			err.message,
 			"completed",
@@ -477,7 +485,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	if err != nil {
 		updater.StatusUpdate(
 			ctx,
-			*cr.ID,
+			info,
 			title,
 			fmt.Sprintf("creation of cache volume failed, %v", err),
 			"completed",
@@ -490,7 +498,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	if err != nil {
 		updater.StatusUpdate(
 			ctx,
-			*cr.ID,
+			info,
 			title,
 			fmt.Sprintf("argo workflow creation failed, %v", err),
 			"completed",

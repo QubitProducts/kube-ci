@@ -51,6 +51,8 @@ var (
 	annCheckRunName         = "kube-ci.qutics.com/check-run-name"
 	annCheckRunID           = "kube-ci.qutics.com/check-run-id"
 	annAnnotationsPublished = "kube-ci.qutics.com/annotations-published"
+	annWorkflowSource       = "kube-ci.qutics.com/workflow-source"
+	annDeploymentID         = "kube-ci.qutics.com/deployment-id"
 
 	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
 	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
@@ -103,22 +105,29 @@ func (ts TemplateSet) Help() string {
 
 // Config defines our configuration file format
 type Config struct {
-	CIFilePath    string            `yaml:"ciFilePath"`
-	Namespace     string            `yaml:"namespace"`
-	Tolerations   []v1.Toleration   `yaml:"tolerations"`
-	NodeSelector  map[string]string `yaml:"nodeSelector"`
-	TemplateSet   TemplateSet       `yaml:"templates"`
-	CacheDefaults CacheSpec         `yaml:"cacheDefaults"`
-	BuildDraftPRs bool              `yaml:"buildDraftPRs"`
-	BuildBranches string            `yaml:"buildBranches"`
+	CIFilePath      string            `yaml:"ciFilePath"`
+	Namespace       string            `yaml:"namespace"`
+	Tolerations     []v1.Toleration   `yaml:"tolerations"`
+	NodeSelector    map[string]string `yaml:"nodeSelector"`
+	TemplateSet     TemplateSet       `yaml:"templates"`
+	CacheDefaults   CacheSpec         `yaml:"cacheDefaults"`
+	BuildDraftPRs   bool              `yaml:"buildDraftPRs"`
+	BuildBranches   string            `yaml:"buildBranches"`
+	DeployTemplates string            `yaml:"deployTemplates"`
 
-	buildBranches *regexp.Regexp
+	ExtraParameters map[string]string `yaml:"extraParameters"`
+
+	buildBranches   *regexp.Regexp
+	deployTemplates *regexp.Regexp
 }
 
 type storageManager interface {
 	ensurePVC(wf *workflow.Workflow, org, repo, branch string, defaults CacheSpec) error
 	deletePVC(org, repo, branch string, action string) error
 }
+
+// workflowSyncer watches argo workflows as they run and publishes updates
+// udpates back to github.
 
 type workflowSyncer struct {
 	appID    int64
@@ -187,12 +196,12 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
-	cri, err := crInfoFromWorkflow(wf)
+	ghInfo, err := githubInfoFromWorkflow(wf)
 	if err != nil {
 		return
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
+	ghClient, err := ws.ghClientSrc.getClient(ghInfo.orgName, int(ghInfo.instID), ghInfo.repoName)
 	if err != nil {
 		return
 	}
@@ -201,10 +210,10 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 	conclusion := "cancelled"
 	ghClient.UpdateCheckRun(
 		context.Background(),
-		cri.checkRunID,
+		ghInfo.checkRunID,
 		github.UpdateCheckRunOptions{
-			Name:        cri.checkRunName,
-			HeadSHA:     &cri.headSHA,
+			Name:        ghInfo.checkRunName,
+			HeadSHA:     &ghInfo.headSHA,
 			Status:      &status,
 			Conclusion:  &conclusion,
 			CompletedAt: &github.Timestamp{Time: time.Now()},
@@ -273,7 +282,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		}
 	}
 
-	cr, err := crInfoFromWorkflow(wf)
+	cr, err := githubInfoFromWorkflow(wf)
 	if err != nil {
 		log.Printf("ignoring %s/%s, %v", wf.Namespace, wf.Name, err)
 		return nil
@@ -427,7 +436,7 @@ func (ws *workflowSyncer) runWorker() {
 	log.Print("worker stopped")
 }
 
-type crInfo struct {
+type githubInfo struct {
 	orgName  string
 	repoName string
 	instID   int
@@ -435,11 +444,17 @@ type crInfo struct {
 	headSHA    string
 	headBranch string
 
+	workflowSource string
+
 	checkRunName string
 	checkRunID   int64
+
+	deploymentID int64
 }
 
-func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
+func githubInfoFromWorkflow(wf *workflow.Workflow) (*githubInfo, error) {
+	var err error
+
 	instIDStr, ok := wf.Annotations[annInstID]
 	if !ok {
 		return nil, fmt.Errorf("could not get github installation id for  %s/%s", wf.Namespace, wf.Name)
@@ -480,26 +495,43 @@ func crInfoFromWorkflow(wf *workflow.Workflow) (*crInfo, error) {
 		return nil, fmt.Errorf("could not convert check  run id for %s/%s to int", wf.Namespace, wf.Name)
 	}
 
-	return &crInfo{
-		headSHA:      headSHA,
-		instID:       instID,
-		headBranch:   headBranch,
-		orgName:      orgName,
-		repoName:     repoName,
-		checkRunName: checkRunName,
-		checkRunID:   int64(checkRunID),
+	var workflowSource string
+	workflowSource, ok = wf.Annotations[annWorkflowSource]
+	if !ok {
+		workflowSource = "check-run"
+	}
+
+	var deploymentID int
+	deploymentIDStr, ok := wf.Annotations[annDeploymentID]
+	if ok {
+		deploymentID, err = strconv.Atoi(deploymentIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("could not convert check  run id for %s/%s to int", wf.Namespace, wf.Name)
+		}
+	}
+
+	return &githubInfo{
+		headSHA:        headSHA,
+		instID:         instID,
+		headBranch:     headBranch,
+		orgName:        orgName,
+		repoName:       repoName,
+		workflowSource: workflowSource,
+		checkRunName:   checkRunName,
+		checkRunID:     int64(checkRunID),
+		deploymentID:   int64(deploymentID),
 	}, nil
 }
 
 func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workflow) (*workflow.Workflow, error) {
 	newWf := wf.DeepCopy()
 
-	cr, err := crInfoFromWorkflow(wf)
+	ghInfo, err := githubInfoFromWorkflow(wf)
 	if err != nil {
 		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
 	}
 
-	ghClient, err := ws.ghClientSrc.getClient(cr.orgName, int(cr.instID), cr.repoName)
+	ghClient, err := ws.ghClientSrc.getClient(ghInfo.orgName, int(ghInfo.instID), ghInfo.repoName)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +539,7 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 	newCR, err := ghClient.CreateCheckRun(context.TODO(),
 		github.CreateCheckRunOptions{
 			Name:    checkRunName,
-			HeadSHA: cr.headSHA,
+			HeadSHA: ghInfo.headSHA,
 			Status:  initialCheckRunStatus,
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Workflow Setup"),
@@ -519,9 +551,10 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 		return nil, fmt.Errorf("failed creating new check run, %w", err)
 	}
 
+	ghInfo.checkRunID = newCR.GetID()
 	ghClient.StatusUpdate(
 		context.Background(),
-		*newCR.ID,
+		ghInfo,
 		"Workflow Setup",
 		"Creating workflow",
 		"queued",
@@ -549,8 +582,8 @@ func getWFVolumeScope(wf *workflow.Workflow) string {
 	}
 }
 
-func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, cri *crInfo, allAnns []*github.CheckRunAnnotation, title, summary, text *string) error {
-	ghClient, err := ws.ghClientSrc.getClient(cri.orgName, int(cri.instID), cri.repoName)
+func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *githubInfo, allAnns []*github.CheckRunAnnotation, title, summary, text *string) error {
+	ghClient, err := ws.ghClientSrc.getClient(ghInfo.orgName, int(ghInfo.instID), ghInfo.repoName)
 	if err != nil {
 		return err
 	}
@@ -568,24 +601,20 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, cri *crInfo,
 		},
 	}
 
-	/*
-		if wf.Status.Phase == workflow.NodeSucceeded {
-				actions = []*github.CheckRunAction{
-					{
-						Label:       "Deploy Me",
-						Description: "Do the thing ",
-						Identifier:  "deploy",
-					},
-				}
-		}
-	*/
+	if wf.Status.Phase == workflow.WorkflowSucceeded {
+		actions = append(actions, &github.CheckRunAction{
+			Label:       "Deploy Me",
+			Description: "Deploy to  ",
+			Identifier:  "deploy",
+		})
+	}
 
 	_, err = ghClient.UpdateCheckRun(
 		context.Background(),
-		cri.checkRunID,
+		ghInfo.checkRunID,
 		github.UpdateCheckRunOptions{
-			Name:    cri.checkRunName,
-			HeadSHA: &cri.headSHA,
+			Name:    ghInfo.checkRunName,
+			HeadSHA: &ghInfo.headSHA,
 			Actions: actions,
 		},
 	)
@@ -603,10 +632,10 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, cri *crInfo,
 		anns := allAnns[start:end]
 		_, err = ghClient.UpdateCheckRun(
 			context.Background(),
-			cri.checkRunID,
+			ghInfo.checkRunID,
 			github.UpdateCheckRunOptions{
-				Name:    cri.checkRunName,
-				HeadSHA: &cri.headSHA,
+				Name:    ghInfo.checkRunName,
+				HeadSHA: &ghInfo.headSHA,
 
 				Output: &github.CheckRunOutput{
 					Title:       title,
@@ -626,7 +655,7 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, cri *crInfo,
 
 // completeCheckRun is used to publish any annotations found in the logs from a check run.
 // There are a bunch of reasons this could fail.
-func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, text *string, wf *workflow.Workflow, cri *crInfo) {
+func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, text *string, wf *workflow.Workflow, ghInfo *githubInfo) {
 	if wf.Status.Phase != workflow.WorkflowFailed &&
 		wf.Status.Phase != workflow.WorkflowSucceeded {
 		return
@@ -650,7 +679,7 @@ func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, 
 		allAnns = append(allAnns, anns...)
 	}
 
-	err := ws.ghCompleteCheckRun(wf, cri, allAnns, title, summary, text)
+	err := ws.ghCompleteCheckRun(wf, ghInfo, allAnns, title, summary, text)
 	if err != nil {
 		log.Printf("completeing github checkrun for %s/%s failed, %v", wf.Namespace, wf.Name, err)
 		return
