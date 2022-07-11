@@ -105,15 +105,17 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		return http.StatusBadRequest, "failed to create github client"
 	}
 
-	user := event.Deployment.Creator.GetLogin()
-	ok, err := ghClient.IsMember(ctx, user)
-	if err != nil {
-		return http.StatusBadRequest, "failed to check org membership"
-	}
+	/*
+		user := event.Deployment.Creator.GetLogin()
+		ok, err := ghClient.IsMember(ctx, user)
+		if err != nil {
+			return http.StatusBadRequest, "failed to check org membership"
+		}
 
-	if !ok {
-		return http.StatusBadRequest, "deployment user not from our orgs"
-	}
+		if !ok {
+			return http.StatusBadRequest, "deployment user not from our orgs"
+		}
+	*/
 
 	logURL := fmt.Sprintf(
 		"%s/workflows/%s/%s",
