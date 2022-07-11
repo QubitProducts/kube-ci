@@ -262,7 +262,7 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 		return h.webhookCheckRunRequestActionClearCache(ctx, event)
 	}
 
-	action := event.GetAction()
+	action := event.GetRequestedAction().Identifier
 	parts := strings.Split(action, "#")
 	if len(parts) != 2 {
 		return http.StatusBadRequest, "malformed action, want target#env"
