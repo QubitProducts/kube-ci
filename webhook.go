@@ -105,8 +105,8 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		return http.StatusBadRequest, "failed to create github client"
 	}
 
-	user := event.Deployment.Creator.Name
-	ok, err := ghClient.IsMember(ctx, *user)
+	user := event.Deployment.Creator.GetLogin()
+	ok, err := ghClient.IsMember(ctx, user)
 	if err != nil {
 		return http.StatusBadRequest, "failed to check org membership"
 	}
