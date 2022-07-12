@@ -14,14 +14,10 @@ import (
 type ghClientInterface interface {
 	GetInstallID() int
 	GetRef(ctx context.Context, ref string) (*github.Reference, error)
-	UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error)
 	StatusUpdate(
 		ctx context.Context,
 		info *githubInfo,
-		title string,
-		msg string,
-		status string,
-		conclusion string,
+		status GithubStatus,
 	)
 	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
 	CreateDeployment(ctx context.Context, req *github.DeploymentRequest) (*github.Deployment, error)

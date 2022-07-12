@@ -26,7 +26,7 @@ func (tgi *testGHClientInterface) UpdateCheckRun(ctx context.Context, id int64, 
 	panic("not implemented") // TODO: Implement
 }
 
-func (tgi *testGHClientInterface) StatusUpdate(ctx context.Context, info *githubInfo, title string, msg string, status string, conclusion string) {
+func (tgi *testGHClientInterface) StatusUpdate(ctx context.Context, info *githubInfo, status GithubStatus) {
 	panic("not implemented") // TODO: Implement
 }
 

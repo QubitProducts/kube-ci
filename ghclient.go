@@ -51,28 +51,49 @@ func (r *repoClient) UpdateCheckRun(ctx context.Context, id int64, upd github.Up
 func (r *repoClient) StatusUpdate(
 	ctx context.Context,
 	info *githubInfo,
-	title string,
-	msg string,
-	status string,
-	conclusion string,
+	status GithubStatus,
 ) {
-	log.Print(msg)
+	log.Print(status.msg)
 	if info.checkRunID != 0 {
 		opts := github.UpdateCheckRunOptions{
-			Name:   checkRunName,
-			Status: &status,
-			Output: &github.CheckRunOutput{
-				Title:   &title,
-				Summary: &msg,
-			},
+			Name: checkRunName,
 		}
 
-		if conclusion != "" {
-			opts.Conclusion = &conclusion
+		if status.status != "" {
+			opts.Status = &status.status
+		}
+
+		if status.title != "" || status.msg != "" {
+			opts.Output = &github.CheckRunOutput{
+				Title:   &status.title,
+				Summary: &status.msg,
+			}
+		}
+
+		if status.detailsURL != "" {
+			opts.DetailsURL = &status.detailsURL
+		}
+
+		if info.headSHA != "" {
+			opts.HeadSHA = &info.headSHA
+		}
+
+		if status.conclusion != "" {
+			opts.Conclusion = &status.conclusion
 			opts.CompletedAt = &github.Timestamp{
 				Time: time.Now(),
 			}
 		}
+
+		opts.Actions = status.Actions
+
+		if len(status.annotations) != 0 {
+			if opts.Output == nil {
+				opts.Output = &github.CheckRunOutput{}
+			}
+			opts.Output.Annotations = status.annotations
+		}
+
 		_, _, err := r.client.Checks.UpdateCheckRun(
 			ctx,
 			r.org,

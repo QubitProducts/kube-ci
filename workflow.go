@@ -14,6 +14,22 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+// GithubStatus is a pseudo-ugly mapping of github checkrun
+// and deployment status into a common struct to make workflow
+// running agnostic to the reason the workflow was launched
+type GithubStatus struct {
+	status     string
+	conclusion string
+	detailsURL string
+	Actions    []*github.CheckRunAction
+
+	// output
+	title       string
+	msg         string
+	text        string
+	annotations []*github.CheckRunAnnotation
+}
+
 // StatusUpdater in an interface for informing something about the an update on
 // the progress of a workflow run. The crid arg shoul dbe factored out so this
 // closes over amore abstract concept.
@@ -21,10 +37,7 @@ type StatusUpdater interface {
 	StatusUpdate(
 		ctx context.Context,
 		info *githubInfo,
-		title string,
-		msg string,
-		status string,
-		conclusion string,
+		status GithubStatus,
 	)
 }
 
@@ -386,31 +399,38 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	}
 
 	info := &githubInfo{
-		orgName:      org,
-		repoName:     name,
-		instID:       ghClient.GetInstallID(),
+		orgName:  org,
+		repoName: name,
+		instID:   ghClient.GetInstallID(),
+
 		checkRunID:   cr.GetID(),
 		checkRunName: checkRunName,
 	}
 
+	// Status: initialise CheckRun info
 	updater.StatusUpdate(
 		ctx,
 		info,
-		title,
-		"Creating Workflow",
-		"queued",
-		"",
+		GithubStatus{
+			title:      title,
+			msg:        "Creating Workflow",
+			status:     "queued",
+			conclusion: "",
+		},
 	)
 
 	if err != nil {
+		// Status: error to checkrun info failed
 		msg := fmt.Sprintf("unable to parse workflow, %v", err)
 		updater.StatusUpdate(
 			ctx,
 			info,
-			title,
-			msg,
-			"completed",
-			"failure",
+			GithubStatus{
+				title:      title,
+				msg:        msg,
+				status:     "completed",
+				conclusion: "failure",
+			},
 		)
 		log.Printf("unable to parse workflow for %s (%s), %v", repo, headbranch, err)
 		return nil
@@ -430,14 +450,17 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 				headsha,
 				entrypoint,
 			)
-			err = fmt.Errorf("no entrypoing %q found in workflow templates", entrypoint)
+			err = fmt.Errorf("no entrypoint %q found in workflow templates", entrypoint)
+			// Status: error to checkrun info failed
 			updater.StatusUpdate(
 				ctx,
 				info,
-				title,
-				err.Error(),
-				"completed",
-				"failure",
+				GithubStatus{
+					title:      title,
+					msg:        err.Error(),
+					status:     "completed",
+					conclusion: "failure",
+				},
 			)
 			return err
 		}
@@ -445,13 +468,16 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	}
 
 	if err := ws.policy(repo, headbranch, title, prs); err != nil {
+		// Status: error to checkrun info failed - policy error
 		updater.StatusUpdate(
 			ctx,
 			info,
-			title,
-			err.message,
-			"completed",
-			"failure",
+			GithubStatus{
+				title:      title,
+				msg:        err.message,
+				status:     "completed",
+				conclusion: "failure",
+			},
 		)
 		log.Printf(err.log)
 		return nil
@@ -483,26 +509,32 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		ws.config.CacheDefaults,
 	)
 	if err != nil {
+		// Status: error to checkrun info failed - pvc create error
 		updater.StatusUpdate(
 			ctx,
 			info,
-			title,
-			fmt.Sprintf("creation of cache volume failed, %v", err),
-			"completed",
-			"failure",
+			GithubStatus{
+				title:      title,
+				msg:        fmt.Sprintf("creation of cache volume failed, %v", err),
+				status:     "completed",
+				conclusion: "failure",
+			},
 		)
 		return err
 	}
 
 	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
+		// Status: error to checkrun info failed - workflow create failed
 		updater.StatusUpdate(
 			ctx,
 			info,
-			title,
-			fmt.Sprintf("argo workflow creation failed, %v", err),
-			"completed",
-			"failure",
+			GithubStatus{
+				title:      title,
+				status:     fmt.Sprintf("argo workflow creation failed, %v", err),
+				msg:        "completed",
+				conclusion: "failure",
+			},
 		)
 
 		return fmt.Errorf("workflow creation failed, %w", err)
