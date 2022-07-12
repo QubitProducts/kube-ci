@@ -384,9 +384,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	title := "Workflow Setup"
 	cr, crerr := ghClient.CreateCheckRun(ctx,
 		github.CreateCheckRunOptions{
-			Name:    checkRunName,
+			Name:    defaultCheckRunName,
 			HeadSHA: headsha,
-			Status:  initialCheckRunStatus,
+			Status:  defaultCheckRunStatus,
 			Output: &github.CheckRunOutput{
 				Title:   &title,
 				Summary: github.String("Creating workflow"),
@@ -404,7 +404,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		instID:   ghClient.GetInstallID(),
 
 		checkRunID:   cr.GetID(),
-		checkRunName: checkRunName,
+		checkRunName: defaultCheckRunName,
 	}
 
 	// Status: initialise CheckRun info

@@ -32,7 +32,7 @@ func (crr *checkRunUpdateRecorder) StatusUpdate(
 ) {
 	log.Print(msg)
 	opts := github.UpdateCheckRunOptions{
-		Name:   checkRunName,
+		Name:   defaultCheckRunName,
 		Status: &status,
 		Output: &github.CheckRunOutput{
 			Title:   &title,

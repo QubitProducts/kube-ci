@@ -294,7 +294,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 	switch wf.Status.Phase {
 	case workflow.WorkflowPending:
-		status = *initialCheckRunStatus
+		status = *defaultCheckRunStatus
 	case workflow.WorkflowRunning:
 		status = "in_progress"
 	case workflow.WorkflowFailed:
@@ -515,9 +515,9 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 
 	newCR, err := ghInfo.ghClient.CreateCheckRun(context.TODO(),
 		github.CreateCheckRunOptions{
-			Name:    checkRunName,
+			Name:    defaultCheckRunName,
 			HeadSHA: ghInfo.headSHA,
-			Status:  initialCheckRunStatus,
+			Status:  defaultCheckRunStatus,
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Workflow Setup"),
 				Summary: github.String("Creating workflow"),

@@ -19,6 +19,6 @@ import (
 )
 
 var (
-	checkRunName          = "Argo Workflow"
-	initialCheckRunStatus = github.String("queued")
+	defaultCheckRunName   = "Argo Workflow"
+	defaultCheckRunStatus = github.String("queued")
 )
