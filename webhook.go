@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -96,6 +97,10 @@ func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *g
 	return http.StatusOK, "OK"
 }
 
+type DeploymentPayload struct {
+	ActionSender string `json:"actionSender"`
+}
+
 func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
 	org := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
@@ -105,9 +110,15 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		return http.StatusBadRequest, "failed to create github client"
 	}
 
-	/*
-		user := event.Deployment.Creator.GetLogin()
-		ok, err := ghClient.IsMember(ctx, user)
+	payload := DeploymentPayload{}
+	json.Unmarshal(event.Deployment.Payload, &payload)
+
+	// The event was either send by someone with permission to create deployments for
+	// the repo, a bot with that access, or by clicking the button in the UI.
+	// The permission on the button are more permissive, so we'll do an extra check here.
+	if sender := payload.ActionSender; sender != "" {
+		var ok bool
+		ok, err = ghClient.IsMember(ctx, sender)
 		if err != nil {
 			return http.StatusBadRequest, "failed to check org membership"
 		}
@@ -115,7 +126,7 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		if !ok {
 			return http.StatusBadRequest, "deployment user not from our orgs"
 		}
-	*/
+	}
 
 	logURL := fmt.Sprintf(
 		"%s/workflows/%s/%s",
@@ -280,6 +291,9 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 			Description: &msg,
 			Environment: &env,
 			Task:        &action,
+			Payload: DeploymentPayload{
+				ActionSender: event.GetSender().GetLogin(),
+			},
 		},
 	)
 
