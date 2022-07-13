@@ -52,7 +52,7 @@ var (
 	annCheckRunID           = "kube-ci.qutics.com/check-run-id"
 	annAnnotationsPublished = "kube-ci.qutics.com/annotations-published"
 	annWorkflowSource       = "kube-ci.qutics.com/workflow-source"
-	annDeploymentID         = "kube-ci.qutics.com/deployment-id"
+	annDeploymentIDs        = "kube-ci.qutics.com/deployment-ids/"
 
 	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
 	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
@@ -429,7 +429,7 @@ type githubInfo struct {
 	checkRunName string
 	checkRunID   int64
 
-	deploymentID int64
+	deploymentIDs map[string]int64
 
 	ghClient ghClientInterface
 }
@@ -483,12 +483,16 @@ func githubInfoFromWorkflow(wf *workflow.Workflow, ghClientSrc githubClientSourc
 		workflowSource = "check-run"
 	}
 
-	var deploymentID int
-	deploymentIDStr, ok := wf.Annotations[annDeploymentID]
-	if ok {
-		deploymentID, err = strconv.Atoi(deploymentIDStr)
-		if err != nil {
-			return nil, fmt.Errorf("could not convert check  run id for %s/%s to int", wf.Namespace, wf.Name)
+	deploymentIDs := map[string]int64{}
+	for k, v := range wf.Annotations {
+		if strings.HasPrefix(k, annDeploymentIDs) {
+			nodeID := ""
+			var deploymentID int
+			deploymentID, err = strconv.Atoi(v)
+			if err != nil {
+				return nil, fmt.Errorf("could not convert deployment id for %s/%s.annotations[%s] to int", wf.Namespace, wf.Name, k)
+			}
+			deploymentIDs[nodeID] = int64(deploymentID)
 		}
 	}
 
@@ -506,7 +510,7 @@ func githubInfoFromWorkflow(wf *workflow.Workflow, ghClientSrc githubClientSourc
 		workflowSource: workflowSource,
 		checkRunName:   checkRunName,
 		checkRunID:     int64(checkRunID),
-		deploymentID:   int64(deploymentID),
+		deploymentIDs:  deploymentIDs,
 		ghClient:       ghClient,
 	}, nil
 }
@@ -555,7 +559,9 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 		case annCheckRunID:
 			newWf.Annotations[k] = strconv.Itoa(int(newCR.GetID()))
 		default:
-			// TODO delete deployment id annotations
+			if strings.HasPrefix(k, annDeploymentIDs) {
+				delete(newWf.Annotations, k)
+			}
 		}
 	}
 
