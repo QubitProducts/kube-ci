@@ -107,20 +107,26 @@ func (ts TemplateSet) Help() string {
 
 // Config defines our configuration file format
 type Config struct {
-	CIFilePath      string            `yaml:"ciFilePath"`
-	Namespace       string            `yaml:"namespace"`
-	Tolerations     []v1.Toleration   `yaml:"tolerations"`
-	NodeSelector    map[string]string `yaml:"nodeSelector"`
-	TemplateSet     TemplateSet       `yaml:"templates"`
-	CacheDefaults   CacheSpec         `yaml:"cacheDefaults"`
-	BuildDraftPRs   bool              `yaml:"buildDraftPRs"`
-	BuildBranches   string            `yaml:"buildBranches"`
-	DeployTemplates string            `yaml:"deployTemplates"`
+	CIFilePath    string            `yaml:"ciFilePath"`
+	Namespace     string            `yaml:"namespace"`
+	Tolerations   []v1.Toleration   `yaml:"tolerations"`
+	NodeSelector  map[string]string `yaml:"nodeSelector"`
+	TemplateSet   TemplateSet       `yaml:"templates"`
+	CacheDefaults CacheSpec         `yaml:"cacheDefaults"`
+	BuildDraftPRs bool              `yaml:"buildDraftPRs"`
+	BuildBranches string            `yaml:"buildBranches"`
+
+	ActionTemplates        string `yaml:"actionTemplates"`
+	DeployTemplates        string `yaml:"deployTemplates"`
+	ProductionEnvironments string `yaml:"productionEnvironments"`
+	EnvironmentParameter   string `yaml:"environmentParameter"`
 
 	ExtraParameters map[string]string `yaml:"extraParameters"`
 
-	buildBranches   *regexp.Regexp
-	deployTemplates *regexp.Regexp
+	buildBranches          *regexp.Regexp
+	actionTemplates        *regexp.Regexp
+	deployTemplates        *regexp.Regexp
+	productionEnvironments *regexp.Regexp
 }
 
 type storageManager interface {
@@ -515,7 +521,7 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 
 	newCR, err := ghInfo.ghClient.CreateCheckRun(context.TODO(),
 		github.CreateCheckRunOptions{
-			Name:    defaultCheckRunName,
+			Name:    ghInfo.checkRunName,
 			HeadSHA: ghInfo.headSHA,
 			Status:  defaultCheckRunStatus,
 			Output: &github.CheckRunOutput{
@@ -540,9 +546,18 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 		},
 	)
 
-	newWf.Annotations[annAnnotationsPublished] = "false"
-	newWf.Annotations[annCheckRunName] = newCR.GetName()
-	newWf.Annotations[annCheckRunID] = strconv.Itoa(int(newCR.GetID()))
+	for k := range newWf.Annotations {
+		switch k {
+		case annAnnotationsPublished:
+			newWf.Annotations[k] = "false"
+		case annCheckRunName:
+			newWf.Annotations[k] = newCR.GetName()
+		case annCheckRunID:
+			newWf.Annotations[k] = strconv.Itoa(int(newCR.GetID()))
+		default:
+			// TODO delete deployment id annotations
+		}
+	}
 
 	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(ctx, newWf, metav1.UpdateOptions{})
 }
@@ -586,14 +601,12 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 
 		if doDeployActions {
 			for _, t := range wf.Spec.Templates {
-				for _, env := range []string{"staging"} {
-					if ws.config.deployTemplates.MatchString(t.Name) {
-						actions = append(actions, &github.CheckRunAction{
-							Label:       fmt.Sprintf("%s - %s", t.Name, env),
-							Description: fmt.Sprintf("Run %s for environment %s", t.Name, env),
-							Identifier:  fmt.Sprintf("%s#%s", t.Name, env),
-						})
-					}
+				if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
+					actions = append(actions, &github.CheckRunAction{
+						Label:       t.Name,
+						Description: fmt.Sprintf("Run the %s template", t.Name),
+						Identifier:  t.Name,
+					})
 				}
 			}
 		}

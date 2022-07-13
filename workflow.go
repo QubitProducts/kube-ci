@@ -381,14 +381,20 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		return nil
 	}
 
-	title := "Workflow Setup"
+	crName := defaultCheckRunName
+	if entrypoint != "" {
+		wf.Spec.Entrypoint = entrypoint
+		crName = defaultCheckRunName
+	}
+
+	title := github.String("Workflow Setup")
 	cr, crerr := ghClient.CreateCheckRun(ctx,
 		github.CreateCheckRunOptions{
-			Name:    defaultCheckRunName,
+			Name:    crName,
 			HeadSHA: headsha,
 			Status:  defaultCheckRunStatus,
 			Output: &github.CheckRunOutput{
-				Title:   &title,
+				Title:   github.String("Workflow Setup"),
 				Summary: github.String("Creating workflow"),
 			},
 		},
@@ -412,7 +418,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		ctx,
 		info,
 		GithubStatus{
-			title:      title,
+			title:      *title,
 			msg:        "Creating Workflow",
 			status:     "queued",
 			conclusion: "",
@@ -426,7 +432,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			ctx,
 			info,
 			GithubStatus{
-				title:      title,
+				title:      *title,
 				msg:        msg,
 				status:     "completed",
 				conclusion: "failure",
@@ -456,7 +462,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 				ctx,
 				info,
 				GithubStatus{
-					title:      title,
+					title:      *title,
 					msg:        err.Error(),
 					status:     "completed",
 					conclusion: "failure",
@@ -467,13 +473,13 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		wf.Spec.Entrypoint = entrypoint
 	}
 
-	if err := ws.policy(repo, headbranch, title, prs); err != nil {
+	if err := ws.policy(repo, headbranch, *title, prs); err != nil {
 		// Status: error to checkrun info failed - policy error
 		updater.StatusUpdate(
 			ctx,
 			info,
 			GithubStatus{
-				title:      title,
+				title:      *title,
 				msg:        err.message,
 				status:     "completed",
 				conclusion: "failure",
@@ -514,7 +520,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			ctx,
 			info,
 			GithubStatus{
-				title:      title,
+				title:      *title,
 				msg:        fmt.Sprintf("creation of cache volume failed, %v", err),
 				status:     "completed",
 				conclusion: "failure",
@@ -530,7 +536,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			ctx,
 			info,
 			GithubStatus{
-				title:      title,
+				title:      *title,
 				status:     fmt.Sprintf("argo workflow creation failed, %v", err),
 				msg:        "completed",
 				conclusion: "failure",

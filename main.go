@@ -187,10 +187,14 @@ func main() {
 	secret = bytes.TrimSpace(secret)
 
 	wfconfig := Config{
-		CIFilePath:    ".kube-ci/ci.yaml",
-		Namespace:     namespace,
-		BuildDraftPRs: false,
-		BuildBranches: "master",
+		CIFilePath:             ".kube-ci/ci.yaml",
+		Namespace:              namespace,
+		BuildDraftPRs:          false,
+		BuildBranches:          "master",
+		ActionTemplates:        "^$",
+		DeployTemplates:        "^$",
+		ProductionEnvironments: "^production$",
+		EnvironmentParameter:   "environment",
 	}
 
 	if *configfile != "" {
@@ -209,9 +213,19 @@ func main() {
 		log.Fatalf("failed to compile branches regexp, %v", err)
 	}
 
+	wfconfig.actionTemplates, err = regexp.Compile(wfconfig.ActionTemplates)
+	if err != nil {
+		log.Fatalf("failed to compile actionTemplates regexp, %v", err)
+	}
+
 	wfconfig.deployTemplates, err = regexp.Compile(wfconfig.DeployTemplates)
 	if err != nil {
 		log.Fatalf("failed to compile deployTemplates regexp, %v", err)
+	}
+
+	wfconfig.productionEnvironments, err = regexp.Compile(wfconfig.DeployTemplates)
+	if err != nil {
+		log.Fatalf("failed to compile productionEnvironments regexp, %v", err)
 	}
 
 	ghSrc := &githubKeyStore{

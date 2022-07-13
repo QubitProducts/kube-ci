@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/go-github/v32/github"
 )
@@ -97,8 +96,10 @@ func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *g
 	return http.StatusOK, "OK"
 }
 
+// DeploymentPayload will do something useful eventually
 type DeploymentPayload struct {
-	ActionSender string `json:"actionSender"`
+	// Pass
+	Passive bool `json:"passive"`
 }
 
 func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
@@ -113,58 +114,23 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 	payload := DeploymentPayload{}
 	json.Unmarshal(event.Deployment.Payload, &payload)
 
-	// The event was either send by someone with permission to create deployments for
-	// the repo, a bot with that access, or by clicking the button in the UI.
-	// The permission on the button are more permissive, so we'll do an extra check here.
-	if sender := payload.ActionSender; sender != "" {
-		var ok bool
-		ok, err = ghClient.IsMember(ctx, sender)
-		if err != nil {
-			return http.StatusBadRequest, "failed to check org membership"
-		}
-
-		if !ok {
-			return http.StatusBadRequest, "deployment user not from our orgs"
-		}
+	if payload.Passive {
+		return http.StatusOK, "OK"
 	}
 
-	logURL := fmt.Sprintf(
-		"%s/workflows/%s/%s",
-		h.uiBase,
-		"blah",
-		"blah")
-
-	pending := "pending"
-	_, err = ghClient.CreateDeploymentStatus(
-		ctx,
-		*event.Deployment.ID,
-		&github.DeploymentStatusRequest{
-			State:  &pending,
-			LogURL: &logURL,
-		},
+	// Run a workflow to perform the deploy
+	// TODO, we need to pass in the extra environment
+	// parameter, and the deployment ID
+	h.runner.runWorkflow(ctx,
+		ghClient,
+		event.GetRepo(),
+		event.GetDeployment().GetSHA(),
+		"", // TODO - the ref could be a tag or a branch
+		event.GetDeployment().GetRef(),
+		event.GetDeployment().GetTask(),
+		nil,
+		ghClient,
 	)
-
-	if err != nil {
-		log.Printf("create deployment state failed, %v", err)
-		return http.StatusInternalServerError, ""
-	}
-
-	go func() {
-		time.Sleep(10 * time.Second)
-		success := "success"
-		_, err := ghClient.CreateDeploymentStatus(
-			context.Background(),
-			*event.Deployment.ID,
-			&github.DeploymentStatusRequest{
-				State:  &success,
-				LogURL: &logURL,
-			},
-		)
-
-		if err != nil {
-			log.Printf("create deployment state failed, %v", err)
-		}
-	}()
 
 	return http.StatusOK, ""
 }
@@ -249,6 +215,9 @@ func (h *hookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context
 		branch = *event.CheckRun.CheckSuite.HeadBranch
 	}
 
+	// TODO(tcm): update the check-run, or create a new one, to indicate the
+	// cache is being cleared.
+
 	err := h.storage.deletePVC(
 		org,
 		repo,
@@ -275,36 +244,22 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 		return h.webhookCheckRunRequestActionClearCache(ctx, event)
 	}
 
-	action := event.GetRequestedAction().Identifier
-	parts := strings.Split(action, "#")
-	if len(parts) != 2 {
-		return http.StatusBadRequest, "malformed action, want target#env"
-	}
-	action = parts[0]
-	env := parts[1]
-
-	msg := fmt.Sprintf("deploying the thing to %v", env)
-	dep, err := ghClient.CreateDeployment(
-		ctx,
-		&github.DeploymentRequest{
-			Ref:         event.CheckRun.HeadSHA,
-			Description: &msg,
-			Environment: &env,
-			Task:        &action,
-			Payload: DeploymentPayload{
-				ActionSender: event.GetSender().GetLogin(),
-			},
-		},
+	err = h.runner.runWorkflow(ctx,
+		ghClient,
+		event.GetRepo(),
+		event.GetCheckRun().GetHeadSHA(),
+		"branch",
+		event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
+		event.RequestedAction.Identifier,
+		event.GetCheckRun().GetCheckSuite().PullRequests,
+		ghClient,
 	)
 
 	if err != nil {
-		log.Printf("create deployment ailed, %v", err)
-		return http.StatusInternalServerError, ""
+		return http.StatusBadRequest, err.Error()
 	}
 
-	log.Printf("Deployment created, %v", *dep.ID)
-
-	return http.StatusOK, "blah"
+	return http.StatusOK, "action initiated"
 }
 
 func (h *hookHandler) loggingWebhook(w http.ResponseWriter, r *http.Request) (int, string) {
