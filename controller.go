@@ -51,7 +51,6 @@ var (
 	annCheckRunName         = "kube-ci.qutics.com/check-run-name"
 	annCheckRunID           = "kube-ci.qutics.com/check-run-id"
 	annAnnotationsPublished = "kube-ci.qutics.com/annotations-published"
-	annWorkflowSource       = "kube-ci.qutics.com/workflow-source"
 	annDeploymentIDs        = "kube-ci.qutics.com/deployment-ids/"
 
 	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
@@ -264,7 +263,8 @@ func newWorkflowSyncer(
 	return syncer
 }
 
-func (ws *workflowSyncer) handleCheckRunResetRun(ctx context.Context, wf *workflow.Workflow) bool {
+// handleCheckRunResetRun returns true if we should continue
+func (ws *workflowSyncer) handleCheckRunResetRun(ctx context.Context, wf *workflow.Workflow) (*workflow.Workflow, bool) {
 	var err error
 	if v, ok := wf.Annotations[annAnnotationsPublished]; ok && v == "true" {
 		switch wf.Status.Phase {
@@ -272,17 +272,17 @@ func (ws *workflowSyncer) handleCheckRunResetRun(ctx context.Context, wf *workfl
 			wf, err = ws.resetCheckRun(ctx, wf)
 			if err != nil {
 				log.Printf("failed checkrun reset, %v", err)
-				return true
+				return nil, false
 			}
 		default:
 			// The workflow is not yet running, ignore it
-			return true
+			return nil, false
 		}
 	}
-	return false
+	return wf, true
 }
 
-func nodesText(wf *workflow.Workflow) string {
+func (ws *workflowSyncer) nodesText(wf *workflow.Workflow) string {
 	text := ""
 	var names []string
 	namesToNodes := make(map[string]string)
@@ -336,13 +336,30 @@ func completionStatus(wf *workflow.Workflow) (string, string) {
 	return status, conclusion
 }
 
+func (ws *workflowSyncer) syncDeployments(wf *workflow.Workflow, info *githubInfo) {
+	for _, n := range wf.Status.Nodes {
+		if n.TemplateName == "" || !ws.config.deployTemplates.MatchString(n.TemplateName) {
+			continue
+		}
+
+		deployID := info.deploymentIDs[n.ID]
+		if deployID == 0 {
+			// we need to create a new deployment and record it here
+		}
+	}
+}
+
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	var err error
 	ctx := context.Background()
 
+	// we may modify this, so we'll just assume we will
+	wf = wf.DeepCopy()
+
 	log.Printf("got workflow phase: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
 
-	if ws.handleCheckRunResetRun(ctx, wf) {
+	wf, cont := ws.handleCheckRunResetRun(ctx, wf)
+	if !cont {
 		return nil
 	}
 
@@ -351,6 +368,8 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		log.Printf("ignoring %s/%s, %v", wf.Namespace, wf.Name, err)
 		return nil
 	}
+
+	ws.syncDeployments(wf, info)
 
 	status, conclusion := completionStatus(wf)
 	if status == "" {
@@ -367,7 +386,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 	title := fmt.Sprintf("Workflow Run (%s/%s))", wf.Namespace, wf.Name)
 
-	text := nodesText(wf)
+	text := ws.nodesText(wf)
 
 	// Status: Progress Update
 	info.ghClient.StatusUpdate(
@@ -447,8 +466,6 @@ type githubInfo struct {
 	headSHA    string
 	headBranch string
 
-	workflowSource string
-
 	checkRunName string
 	checkRunID   int64
 
@@ -500,23 +517,21 @@ func githubInfoFromWorkflow(wf *workflow.Workflow, ghClientSrc githubClientSourc
 		return nil, fmt.Errorf("could not convert check  run id for %s/%s to int", wf.Namespace, wf.Name)
 	}
 
-	var workflowSource string
-	workflowSource, ok = wf.Annotations[annWorkflowSource]
-	if !ok {
-		workflowSource = "check-run"
-	}
-
 	deploymentIDs := map[string]int64{}
 	for k, v := range wf.Annotations {
-		if strings.HasPrefix(k, annDeploymentIDs) {
-			nodeID := ""
-			var deploymentID int
-			deploymentID, err = strconv.Atoi(v)
-			if err != nil {
-				return nil, fmt.Errorf("could not convert deployment id for %s/%s.annotations[%s] to int", wf.Namespace, wf.Name, k)
-			}
-			deploymentIDs[nodeID] = int64(deploymentID)
+		if !strings.HasPrefix(k, annDeploymentIDs) {
+			continue
 		}
+		nodeID := k[len(annDeploymentIDs):]
+		if nodeID == "" {
+			continue
+		}
+		var deploymentID int
+		deploymentID, err = strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("could not convert deployment id for %s/%s.annotations[%s] to int", wf.Namespace, wf.Name, k)
+		}
+		deploymentIDs[nodeID] = int64(deploymentID)
 	}
 
 	ghClient, err := ghClientSrc.getClient(orgName, int(instID), repoName)
@@ -525,22 +540,19 @@ func githubInfoFromWorkflow(wf *workflow.Workflow, ghClientSrc githubClientSourc
 	}
 
 	return &githubInfo{
-		headSHA:        headSHA,
-		instID:         instID,
-		headBranch:     headBranch,
-		orgName:        orgName,
-		repoName:       repoName,
-		workflowSource: workflowSource,
-		checkRunName:   checkRunName,
-		checkRunID:     int64(checkRunID),
-		deploymentIDs:  deploymentIDs,
-		ghClient:       ghClient,
+		headSHA:       headSHA,
+		instID:        instID,
+		headBranch:    headBranch,
+		orgName:       orgName,
+		repoName:      repoName,
+		checkRunName:  checkRunName,
+		checkRunID:    int64(checkRunID),
+		deploymentIDs: deploymentIDs,
+		ghClient:      ghClient,
 	}, nil
 }
 
 func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workflow) (*workflow.Workflow, error) {
-	newWf := wf.DeepCopy()
-
 	ghInfo, err := githubInfoFromWorkflow(wf, ws.ghClientSrc)
 	if err != nil {
 		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
@@ -573,22 +585,22 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 		},
 	)
 
-	for k := range newWf.Annotations {
+	for k := range wf.Annotations {
 		switch k {
 		case annAnnotationsPublished:
-			newWf.Annotations[k] = "false"
+			wf.Annotations[k] = "false"
 		case annCheckRunName:
-			newWf.Annotations[k] = newCR.GetName()
+			wf.Annotations[k] = newCR.GetName()
 		case annCheckRunID:
-			newWf.Annotations[k] = strconv.Itoa(int(newCR.GetID()))
+			wf.Annotations[k] = strconv.Itoa(int(newCR.GetID()))
 		default:
 			if strings.HasPrefix(k, annDeploymentIDs) {
-				delete(newWf.Annotations, k)
+				delete(wf.Annotations, k)
 			}
 		}
 	}
 
-	return ws.client.ArgoprojV1alpha1().Workflows(newWf.GetNamespace()).Update(ctx, newWf, metav1.UpdateOptions{})
+	return ws.client.ArgoprojV1alpha1().Workflows(wf.GetNamespace()).Update(ctx, wf, metav1.UpdateOptions{})
 }
 
 func getWFVolumeScope(wf *workflow.Workflow) string {

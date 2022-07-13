@@ -25,7 +25,7 @@ type GithubStatus struct {
 
 	// output
 	title       string
-	msg         string
+	summary     string
 	text        string
 	annotations []*github.CheckRunAnnotation
 }
@@ -419,7 +419,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		info,
 		GithubStatus{
 			title:      *title,
-			msg:        "Creating Workflow",
+			summary:    "Creating Workflow",
 			status:     "queued",
 			conclusion: "",
 		},
@@ -433,7 +433,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			info,
 			GithubStatus{
 				title:      *title,
-				msg:        msg,
+				summary:    msg,
 				status:     "completed",
 				conclusion: "failure",
 			},
@@ -463,7 +463,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 				info,
 				GithubStatus{
 					title:      *title,
-					msg:        err.Error(),
+					summary:    err.Error(),
 					status:     "completed",
 					conclusion: "failure",
 				},
@@ -480,7 +480,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			info,
 			GithubStatus{
 				title:      *title,
-				msg:        err.message,
+				summary:    err.message,
 				status:     "completed",
 				conclusion: "failure",
 			},
@@ -521,7 +521,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			info,
 			GithubStatus{
 				title:      *title,
-				msg:        fmt.Sprintf("creation of cache volume failed, %v", err),
+				summary:    fmt.Sprintf("creation of cache volume failed, %v", err),
 				status:     "completed",
 				conclusion: "failure",
 			},
@@ -538,7 +538,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			GithubStatus{
 				title:      *title,
 				status:     fmt.Sprintf("argo workflow creation failed, %v", err),
-				msg:        "completed",
+				summary:    "completed",
 				conclusion: "failure",
 			},
 		)
