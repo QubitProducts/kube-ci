@@ -264,65 +264,25 @@ func newWorkflowSyncer(
 	return syncer
 }
 
-func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
+func (ws *workflowSyncer) handleCheckRunResetRun(ctx context.Context, wf *workflow.Workflow) bool {
 	var err error
-	ctx := context.Background()
-
-	log.Printf("got workflow phase: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
-
 	if v, ok := wf.Annotations[annAnnotationsPublished]; ok && v == "true" {
 		switch wf.Status.Phase {
 		case workflow.WorkflowPending, workflow.WorkflowRunning: // attempt create new checkrun for a resubmitted job
 			wf, err = ws.resetCheckRun(ctx, wf)
 			if err != nil {
 				log.Printf("failed checkrun reset, %v", err)
-				return nil
+				return true
 			}
 		default:
 			// The workflow is not yet running, ignore it
-			return nil
+			return true
 		}
 	}
+	return false
+}
 
-	cr, err := githubInfoFromWorkflow(wf, ws.ghClientSrc)
-	if err != nil {
-		log.Printf("ignoring %s/%s, %v", wf.Namespace, wf.Name, err)
-		return nil
-	}
-
-	status := ""
-
-	failure := "failure"
-	success := "success"
-	//neutral := "neutral"
-	cancelled := "cancelled"
-	var conclusion string
-
-	switch wf.Status.Phase {
-	case workflow.WorkflowPending:
-		status = *defaultCheckRunStatus
-	case workflow.WorkflowRunning:
-		status = "in_progress"
-	case workflow.WorkflowFailed:
-		status = "completed"
-		conclusion = failure
-		if wf.Spec.ActiveDeadlineSeconds != nil && *wf.Spec.ActiveDeadlineSeconds == 0 {
-			conclusion = cancelled
-		}
-	case workflow.WorkflowError:
-		status = "completed"
-		conclusion = failure
-	case workflow.WorkflowSucceeded:
-		status = "completed"
-		conclusion = success
-	default:
-		log.Printf("ignoring %s/%s, unknown node phase %q", wf.Namespace, wf.Name, wf.Status.Phase)
-		return nil
-	}
-
-	summary := wf.Status.Message
-
-	title := fmt.Sprintf("Workflow Run (%s/%s))", wf.Namespace, wf.Name)
+func nodesText(wf *workflow.Workflow) string {
 	text := ""
 	var names []string
 	namesToNodes := make(map[string]string)
@@ -339,6 +299,63 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		node := wf.Status.Nodes[n]
 		text += fmt.Sprintf("%s(%s): %s \n", k, node.Phase, node.Message)
 	}
+	return text
+}
+
+func completionStatus(wf *workflow.Workflow) (string, string) {
+	completed := "completed"
+	inProgress := "in_progress"
+	status := ""
+
+	failure := "failure"
+	success := "success"
+	cancelled := "cancelled"
+	var conclusion string
+
+	switch wf.Status.Phase {
+	case workflow.WorkflowPending:
+		status = *defaultCheckRunStatus
+	case workflow.WorkflowRunning:
+		status = inProgress
+	case workflow.WorkflowFailed:
+		status = completed
+		conclusion = failure
+		if wf.Spec.ActiveDeadlineSeconds != nil && *wf.Spec.ActiveDeadlineSeconds == 0 {
+			conclusion = cancelled
+		}
+	case workflow.WorkflowError:
+		status = completed
+		conclusion = failure
+	case workflow.WorkflowSucceeded:
+		status = completed
+		conclusion = success
+	default:
+		log.Printf("ignoring %s/%s, unknown node phase %q", wf.Namespace, wf.Name, wf.Status.Phase)
+		return "", ""
+	}
+	return status, conclusion
+}
+
+func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
+	var err error
+	ctx := context.Background()
+
+	log.Printf("got workflow phase: %v/%v %v", wf.Namespace, wf.Name, wf.Status.Phase)
+
+	if ws.handleCheckRunResetRun(ctx, wf) {
+		return nil
+	}
+
+	info, err := githubInfoFromWorkflow(wf, ws.ghClientSrc)
+	if err != nil {
+		log.Printf("ignoring %s/%s, %v", wf.Namespace, wf.Name, err)
+		return nil
+	}
+
+	status, conclusion := completionStatus(wf)
+	if status == "" {
+		return nil
+	}
 
 	wfURL := fmt.Sprintf(
 		"%s/workflows/%s/%s",
@@ -346,13 +363,19 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		wf.Namespace,
 		wf.Name)
 
+	summary := wf.Status.Message
+
+	title := fmt.Sprintf("Workflow Run (%s/%s))", wf.Namespace, wf.Name)
+
+	text := nodesText(wf)
+
 	// Status: Progress Update
-	cr.ghClient.StatusUpdate(
+	info.ghClient.StatusUpdate(
 		ctx,
-		cr,
+		info,
 		GithubStatus{
 			title:      title,
-			msg:        summary,
+			summary:    summary,
 			status:     status,
 			conclusion: conclusion,
 			detailsURL: wfURL,
@@ -361,7 +384,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	)
 
 	if status == "completed" {
-		go ws.completeCheckRun(ctx, &title, &summary, &text, wf, cr)
+		go ws.completeCheckRun(ctx, &title, &summary, &text, wf, info)
 	}
 
 	return nil
@@ -544,9 +567,9 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 		context.Background(),
 		ghInfo,
 		GithubStatus{
-			title:  "Workflow Setup",
-			msg:    "Creating workflow",
-			status: "queued",
+			title:   "Workflow Setup",
+			summary: "Creating workflow",
+			status:  "queued",
 		},
 	)
 
@@ -644,7 +667,7 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 			ctx,
 			ghInfo,
 			GithubStatus{
-				msg:         *summary,
+				summary:     *summary,
 				text:        *text,
 				title:       *title,
 				annotations: anns,
