@@ -9,18 +9,15 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v32/github"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 // getPodLogs returns the logs for pod, the caller must close the stream
 func getPodLogs(ctx context.Context, client kubernetes.Interface, name, namespace, container string) (io.ReadCloser, error) {
 	log.Printf("trying to stream logs for %s/%s[%s]", name, namespace, container)
-	req := client.CoreV1().RESTClient().Get().
-		Namespace(namespace).
-		Name(name).
-		Resource("pods").
-		SubResource("log").
-		Param("container", container)
+
+	req := client.CoreV1().Pods(namespace).GetLogs(name, &corev1.PodLogOptions{Container: container})
 
 	readCloser, err := req.Stream(ctx)
 	if err != nil {
