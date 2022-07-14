@@ -10,6 +10,8 @@ import (
 
 //lint:ignore U1000 this will be used once we need to mock the GH client
 type testGHClientInterface struct {
+	src *testGHClientSrc
+
 	instID int
 	t      *testing.T
 }
@@ -27,7 +29,7 @@ func (tgi *testGHClientInterface) UpdateCheckRun(ctx context.Context, id int64, 
 }
 
 func (tgi *testGHClientInterface) StatusUpdate(ctx context.Context, info *githubInfo, status GithubStatus) {
-	panic("not implemented") // TODO: Implement
+	tgi.src.statusUpdates = append(tgi.src.statusUpdates, status)
 }
 
 func (tgi *testGHClientInterface) CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error) {
@@ -72,10 +74,14 @@ func (tgi *testGHClientInterface) CreateIssueComment(ctx context.Context, issueI
 
 //lint:ignore U1000 this will be used once we need to mock the GH client
 type testGHClientSrc struct {
+	t *testing.T
+
+	statusUpdates []GithubStatus
 }
 
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {
 	return &testGHClientInterface{
 		instID: 1234,
+		src:    tcs,
 	}, nil
 }

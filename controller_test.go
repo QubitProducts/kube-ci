@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"regexp"
 	"testing"
 	"time"
 
@@ -38,6 +39,8 @@ type fixture struct {
 	client     *workflowfake.Clientset
 	kubeclient *k8sfake.Clientset
 
+	config Config
+
 	// Objects to put in the store.
 	workflowsLister []*workflow.Workflow
 	// Actions expected to happen on the client.
@@ -61,14 +64,13 @@ var (
 	noResyncPeriodFunc = func() time.Duration { return 0 }
 )
 
-func (f *fixture) newController() (*workflowSyncer, informers.SharedInformerFactory, k8sinformers.SharedInformerFactory) {
+func (f *fixture) newController(config Config) (*workflowSyncer, informers.SharedInformerFactory, k8sinformers.SharedInformerFactory, *testGHClientSrc) {
 	f.client = workflowfake.NewSimpleClientset(f.objects...)
 	f.kubeclient = k8sfake.NewSimpleClientset(f.kubeobjects...)
 
 	i := informers.NewSharedInformerFactory(f.client, noResyncPeriodFunc())
 	k8sI := k8sinformers.NewSharedInformerFactory(f.kubeclient, noResyncPeriodFunc())
 
-	config := Config{}
 	storage := &fakeStorageManager{}
 	clients := &testGHClientSrc{}
 
@@ -90,7 +92,7 @@ func (f *fixture) newController() (*workflowSyncer, informers.SharedInformerFact
 		}
 	*/
 
-	return c, i, k8sI
+	return c, i, k8sI, clients
 }
 
 func (f *fixture) run(obj interface{}, t *testing.T) {
@@ -102,7 +104,7 @@ func (f *fixture) runExpectError(obj interface{}, t *testing.T) {
 }
 
 func (f *fixture) runController(obj interface{}, startInformers bool, expectError bool, t *testing.T) {
-	c, i, k8sI := f.newController()
+	c, i, k8sI, gh := f.newController(f.config)
 	if startInformers {
 		stopCh := make(chan struct{})
 		defer close(stopCh)
@@ -152,6 +154,8 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	if len(f.kubeactions) > len(k8sActions) {
 		f.t.Errorf("%d additional expected k8s actions:%+v", len(f.kubeactions)-len(k8sActions), f.kubeactions[len(k8sActions):])
 	}
+
+	f.t.Logf("githubStatus: %#v", gh.statusUpdates)
 }
 
 // checkAction verifies that expected and actual actions are equal and both have
@@ -233,28 +237,162 @@ func getKey(obj interface{}, t *testing.T) string {
 	return key
 }
 
-/*
-func TestCreatesRuleGroup(t *testing.T) {
-	f := newFixture(t)
-	rs := newRuleGroup("test", testGroup)
-	rs.Status.RecordingRuleCount = 2
-
-	f.ruleGroupLister = append(f.ruleGroupLister, rs)
-	f.objects = append(f.objects, rs)
-	//f.kubeobjects = append(f.kubeobjects, cm)
-
-	ucm := newConfigMap(
-		"default",
-		"prom-config-controller",
-		"prom-config-controller.yaml",
-		testConfigMap)
-	cm := ucm.DeepCopy()
-	cm.Data = map[string]string{}
-
-	f.expectCreateConfigMapAction(cm)
-	f.expectUpdateConfigMapAction(ucm)
-	//f.expectUpdateRuleGroupsStatusAction(nrs)
-
-	f.run(rs, t)
+func newWorkflow(str string) *workflow.Workflow {
+	return workflow.MustUnmarshalWorkflow(str)
 }
-*/
+
+func TestCreateWorkflow(t *testing.T) {
+	f := newFixture(t)
+	f.config.deployTemplates = regexp.MustCompile("^$")
+	f.config.actionTemplates = regexp.MustCompile("^$")
+	f.config.productionEnvironments = regexp.MustCompile("^$")
+
+	wf := newWorkflow(`apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  annotations:
+    kube-ci.qutics.com/branch: testdeploy
+    kube-ci.qutics.com/cacheScope: project
+    kube-ci.qutics.com/cacheSize: 20Gi
+    kube-ci.qutics.com/check-run-id: "7319927949"
+    kube-ci.qutics.com/check-run-name: Argo Workflow
+    kube-ci.qutics.com/github-install-id: "593693"
+    kube-ci.qutics.com/org: qubitdigital
+    kube-ci.qutics.com/repo: qubit-grafana
+    kube-ci.qutics.com/sha: 50dbe643f76dcd92c4c935455a46687c903e1b7d
+    workflows.argoproj.io/pod-name-format: v1
+  creationTimestamp: "2022-07-13T11:26:59Z"
+  generation: 5
+  labels:
+    branch: testdeploy
+    managedBy: kube-ci
+    org: myorg
+    repo: myrepo
+    wfType: ci
+  name: wf
+  namespace: argo
+  resourceVersion: "891608799"
+  uid: 69963d6a-bba8-4a83-bf57-aabb96df9217
+spec:
+  arguments:
+    parameters:
+    - name: repo
+      value: git@github.com:myorg/myrepo.git
+    - name: repo_git_url
+      value: git://github.com/myorg/myrepo.git
+    - name: repo_https_url
+      value: https://github.com/myorg/myrepo.git
+    - name: repoName
+      value: myrepo
+    - name: orgName
+      value: myorg
+    - name: revision
+      value: 50dbe643f76dcd92c4c935455a46687c903e1b7d
+    - name: refType
+      value: branch
+    - name: refName
+      value: testdeploy
+    - name: branch
+      value: testdeploy
+    - name: repoDefaultBranch
+      value: master
+    - name: pullRequestID
+      value: ""
+    - name: pullRequestBaseBranch
+      value: ""
+    - name: cacheVolumeClaimName
+      value: cacheVol
+  entrypoint: build
+  templates:
+  - name: build
+    steps:
+    - - arguments:
+          parameters:
+          - name: env
+            value: production
+        name: release-production
+        template: release
+        when: '"{{workflow.parameters.branch}}" == master'
+    - - arguments:
+          parameters:
+          - name: env
+            value: staging
+        name: release-staging
+        template: release
+        when: '"{{workflow.parameters.branch}}" != master'
+  - name: release
+    container:
+      command:
+      - /bin/true
+      image: alpine
+      name: ""
+      workingDir: /src
+    inputs:
+      parameters:
+      - name: env
+        value: staging
+    metadata: {}
+    outputs: {}
+status:
+  conditions:
+  - status: "False"
+    type: PodRunning
+  - status: "True"
+    type: Completed
+  message: child 'wf-522619196' failed
+  phase: Pending
+  nodes:
+    wf:
+      displayName: wf
+      id: wf
+      message: child 'wf-522619196' failed
+      name: wf
+      phase: Failed
+      templateName: build
+      type: Steps
+    wf-522619196:
+      displayName: release-staging
+      id: wf-522619196
+      inputs:
+        parameters:
+        - name: env
+          value: staging
+      message: Error (exit code 2)
+      name: wf[1].release-staging
+      outputs:
+        artifacts:
+        - name: main-logs
+          s3:
+            key: wf/wf-522619196/main.log
+        exitCode: "2"
+      phase: Failed
+      templateName: release
+      templateScope: local/wf
+      type: Pod
+    wf-3533601351:
+      displayName: '[1]'
+      id: wf-3533601351
+      message: child 'wf-522619196' failed
+      name: wf[1]
+      phase: Failed
+      type: StepGroup
+    wf-3600858922:
+      displayName: '[0]'
+      id: wf-3600858922
+      name: wf[0]
+      phase: Succeeded
+      type: StepGroup
+    wf-3673952239:
+      displayName: release-production
+      id: wf-3673952239
+      message: when '"testdeploy" == master' evaluated false
+      name: wf[0].release-production
+      phase: Skipped
+      templateName: release
+      type: Skipped`)
+
+	f.workflowsLister = append(f.workflowsLister, wf)
+	f.objects = append(f.objects, wf)
+
+	f.run(wf, t)
+}
