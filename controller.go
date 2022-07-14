@@ -336,9 +336,30 @@ func completionStatus(wf *workflow.Workflow) (string, string) {
 	return status, conclusion
 }
 
+func deployStatusFromPhase(p workflow.NodePhase) string {
+	switch p {
+	case workflow.NodeRunning:
+		return "in_progress"
+	case workflow.NodeSucceeded:
+		return "success"
+	case workflow.NodeFailed:
+		return "failure"
+	case workflow.NodeError:
+		return "error"
+	default:
+		return ""
+	}
+}
+
 func (ws *workflowSyncer) syncDeployments(wf *workflow.Workflow, info *githubInfo) {
 	for _, n := range wf.Status.Nodes {
 		if n.TemplateName == "" || !ws.config.deployTemplates.MatchString(n.TemplateName) {
+			continue
+		}
+
+		status := deployStatusFromPhase(n.Phase)
+		if status == "" {
+			// not a phase we care about
 			continue
 		}
 
