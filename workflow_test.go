@@ -15,6 +15,8 @@ type checkRunUpdateRecorder struct {
 	org     string
 	repo    string
 	updates []github.UpdateCheckRunOptions
+
+	now func() time.Time
 }
 
 func (crr *checkRunUpdateRecorder) UpdateCheckRun(ctx context.Context, owner, repo string, checkRunID int64, opts github.UpdateCheckRunOptions) (*github.CheckRun, *github.Response, error) {
@@ -24,33 +26,32 @@ func (crr *checkRunUpdateRecorder) UpdateCheckRun(ctx context.Context, owner, re
 
 func (crr *checkRunUpdateRecorder) StatusUpdate(
 	ctx context.Context,
-	crID int64,
-	title string,
-	msg string,
-	status string,
-	conclusion string,
+	info *githubInfo,
+	status GithubStatus,
 ) {
-	log.Print(msg)
+	log.Print(status.summary)
 	opts := github.UpdateCheckRunOptions{
 		Name:   defaultCheckRunName,
-		Status: &status,
+		Status: &status.status,
 		Output: &github.CheckRunOutput{
-			Title:   &title,
-			Summary: &msg,
+			Title:   &status.title,
+			Summary: &status.summary,
 		},
 	}
 
-	if conclusion != "" {
-		opts.Conclusion = &conclusion
+	opts.Actions = status.Actions
+
+	if status.conclusion != "" {
+		opts.Conclusion = &status.conclusion
 		opts.CompletedAt = &github.Timestamp{
-			Time: time.Now(),
+			Time: crr.now(),
 		}
 	}
 	_, _, err := crr.UpdateCheckRun(
 		ctx,
 		crr.org,
 		crr.repo,
-		crID,
+		info.checkRunID,
 		opts)
 
 	if err != nil {
