@@ -9,13 +9,16 @@ import (
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	workflowfake "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned/fake"
 	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
+	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sinformers "k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/utils/diff"
 )
 
 type fakeStorageManager struct {
@@ -44,8 +47,8 @@ type fixture struct {
 	// Objects to put in the store.
 	workflowsLister []*workflow.Workflow
 	// Actions expected to happen on the client.
-	kubeactions []k8stesting.Action
-	actions     []k8stesting.Action
+	k8sactions []k8stesting.Action
+	actions    []k8stesting.Action
 	// Objects from here preloaded into NewSimpleFake.
 	kubeobjects []runtime.Object
 	objects     []runtime.Object
@@ -86,11 +89,13 @@ func (f *fixture) newController(config Config) (*workflowSyncer, informers.Share
 		config,
 	)
 
-	/*
-		for _, f := range f.workflowLister {
-			i.Config().V1beta1().RuleGroups().Informer().GetIndexer().Add(f)
+	for _, wf := range f.workflowsLister {
+		f.t.Logf("adding workflow %s/%s", wf.Namespace, wf.Name)
+		err := i.Argoproj().V1alpha1().Workflows().Informer().GetIndexer().Add(wf)
+		if err != nil {
+			f.t.Errorf("couldn't setup test, error adding workflow %s/%s, %v", wf.Namespace, wf.Name, err)
 		}
-	*/
+	}
 
 	return c, i, k8sI, clients
 }
@@ -142,20 +147,20 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	k8sActions := filterInformerActions(f.kubeclient.Actions())
 	f.t.Logf("k8s actions: %#v", k8sActions)
 	for i, action := range k8sActions {
-		if len(f.kubeactions) < i+1 {
-			f.t.Errorf("%d unexpected k8s actions: %+v", len(k8sActions)-len(f.kubeactions), k8sActions[i:])
+		if len(f.k8sactions) < i+1 {
+			f.t.Errorf("%d unexpected k8s actions: %+v", len(k8sActions)-len(f.k8sactions), k8sActions[i:])
 			break
 		}
 
-		expectedAction := f.kubeactions[i]
+		expectedAction := f.k8sactions[i]
 		checkAction(expectedAction, action, f.t)
 	}
 
-	if len(f.kubeactions) > len(k8sActions) {
-		f.t.Errorf("%d additional expected k8s actions:%+v", len(f.kubeactions)-len(k8sActions), f.kubeactions[len(k8sActions):])
+	if len(f.k8sactions) > len(k8sActions) {
+		f.t.Errorf("%d additional expected k8s actions:%+v", len(f.k8sactions)-len(k8sActions), f.k8sactions[len(k8sActions):])
 	}
 
-	f.t.Logf("githubStatus: %#v", gh.statusUpdates)
+	f.t.Logf("githubStatus: %#v", gh.getCheckRunStatuses())
 }
 
 // checkAction verifies that expected and actual actions are equal and both have
@@ -177,18 +182,16 @@ func checkAction(expected, actual k8stesting.Action, t *testing.T) {
 		expObject := e.GetObject()
 		object := a.GetObject()
 
-		if !reflect.DeepEqual(expObject, object) {
-			t.Errorf("Action %s %s has wrong object\nDiff:\n %s",
-				a.GetVerb(), a.GetResource().Resource, diff.ObjectGoPrintDiff(expObject, object))
+		if diff := cmp.Diff(expObject, object); diff != "" {
+			t.Fatalf("\n(-want +got):\n%s", diff)
 		}
 	case k8stesting.UpdateAction:
 		e, _ := expected.(k8stesting.UpdateAction)
 		expObject := e.GetObject()
 		object := a.GetObject()
 
-		if !reflect.DeepEqual(expObject, object) {
-			t.Errorf("Action %s %s has wrong object\nDiff:\n %s",
-				a.GetVerb(), a.GetResource().Resource, diff.ObjectGoPrintDiff(expObject, object))
+		if diff := cmp.Diff(expObject, object); diff != "" {
+			t.Fatalf("\n(-want +got):\n%s", diff)
 		}
 	}
 }
@@ -241,13 +244,8 @@ func newWorkflow(str string) *workflow.Workflow {
 	return workflow.MustUnmarshalWorkflow(str)
 }
 
-func TestCreateWorkflow(t *testing.T) {
-	f := newFixture(t)
-	f.config.deployTemplates = regexp.MustCompile("^$")
-	f.config.actionTemplates = regexp.MustCompile("^$")
-	f.config.productionEnvironments = regexp.MustCompile("^$")
-
-	wf := newWorkflow(`apiVersion: argoproj.io/v1alpha1
+func baseTestWorkflow() *workflow.Workflow {
+	return newWorkflow(`apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   annotations:
@@ -270,7 +268,7 @@ metadata:
     repo: myrepo
     wfType: ci
   name: wf
-  namespace: argo
+  namespace: default
   resourceVersion: "891608799"
   uid: 69963d6a-bba8-4a83-bf57-aabb96df9217
 spec:
@@ -339,20 +337,20 @@ status:
     type: PodRunning
   - status: "True"
     type: Completed
-  message: child 'wf-522619196' failed
+  message: child 'wf-1' failed
   phase: Pending
   nodes:
     wf:
       displayName: wf
       id: wf
-      message: child 'wf-522619196' failed
+      message: child 'wf-1' failed
       name: wf
       phase: Failed
       templateName: build
       type: Steps
-    wf-522619196:
+    wf-1:
       displayName: release-staging
-      id: wf-522619196
+      id: wf-1
       inputs:
         parameters:
         - name: env
@@ -363,36 +361,118 @@ status:
         artifacts:
         - name: main-logs
           s3:
-            key: wf/wf-522619196/main.log
+            key: wf/wf-1/main.log
         exitCode: "2"
       phase: Failed
       templateName: release
       templateScope: local/wf
       type: Pod
-    wf-3533601351:
+    wf-2:
       displayName: '[1]'
-      id: wf-3533601351
-      message: child 'wf-522619196' failed
+      id: wf-2
+      message: child 'wf-1' failed
       name: wf[1]
       phase: Failed
       type: StepGroup
-    wf-3600858922:
+    wf-3:
       displayName: '[0]'
-      id: wf-3600858922
+      id: wf-3
       name: wf[0]
       phase: Succeeded
       type: StepGroup
-    wf-3673952239:
+    wf-4:
       displayName: release-production
-      id: wf-3673952239
+      id: wf-4
       message: when '"testdeploy" == master' evaluated false
       name: wf[0].release-production
       phase: Skipped
       templateName: release
       type: Skipped`)
+}
 
-	f.workflowsLister = append(f.workflowsLister, wf)
-	f.objects = append(f.objects, wf)
+func newPod(namespace, name string) *corev1.Pod {
+	return &corev1.Pod{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+}
 
-	f.run(wf, t)
+func (f *fixture) expectWorkflowUpdate(wf *workflow.Workflow) {
+	f.actions = append(f.actions,
+		k8stesting.NewUpdateAction(schema.GroupVersionResource{
+			Resource: "workflows",
+			Group:    workflow.SchemeGroupVersion.Group,
+			Version:  workflow.SchemeGroupVersion.Version,
+		}, wf.Namespace, wf),
+	)
+}
+
+func (f *fixture) expectPodGetLogs(namespace, name string) {
+	action := k8stesting.GenericActionImpl{}
+	action.Verb = "get"
+	action.Namespace = namespace
+	action.Resource = schema.GroupVersionResource{
+		Resource: "pods",
+		Group:    corev1.SchemeGroupVersion.Group,
+		Version:  corev1.SchemeGroupVersion.Version,
+	}
+	action.Subresource = "log"
+	action.Value = &corev1.PodLogOptions{Container: "main"}
+
+	f.k8sactions = append(f.k8sactions, action)
+}
+
+func (f *fixture) expectAnnotationsUpdate(wf *workflow.Workflow) {
+	wf = wf.DeepCopy()
+	wf.Annotations[annAnnotationsPublished] = "true"
+	f.expectUpdateWorkflowsAction(wf)
+	for _, n := range wf.Status.Nodes {
+		if n.Type != "Pod" {
+			continue
+		}
+		f.expectPodGetLogs(wf.Namespace, n.ID)
+	}
+}
+
+func TestCreateWorkflow(t *testing.T) {
+	var config Config
+	config.deployTemplates = regexp.MustCompile("^$")
+	config.actionTemplates = regexp.MustCompile("^$")
+	config.productionEnvironments = regexp.MustCompile("^$")
+
+	var tests = []struct {
+		name             string
+		phase            workflow.WorkflowPhase
+		extraAnnotations map[string]string
+		expectLogs       bool
+	}{
+		{"normal_update", workflow.WorkflowRunning, nil, false},
+		{"normal_failure", workflow.WorkflowFailed, nil, true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.config = config
+
+			wf := baseTestWorkflow()
+			wf.Status.Phase = tt.phase
+			for k, v := range tt.extraAnnotations {
+				wf.Annotations[k] = v
+			}
+
+			pod := newPod("default", "wf-1")
+			f.kubeobjects = append(f.kubeobjects, pod)
+			f.objects = append(f.objects, wf)
+
+			if tt.expectLogs {
+				f.expectAnnotationsUpdate(wf)
+			}
+
+			f.run(wf, t)
+		})
+	}
 }
