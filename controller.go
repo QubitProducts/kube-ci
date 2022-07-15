@@ -424,7 +424,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	)
 
 	if status == "completed" {
-		go ws.completeCheckRun(ctx, &title, &summary, &text, wf, info)
+		ws.completeCheckRun(ctx, &title, &summary, &text, wf, info)
 	}
 
 	return nil
@@ -745,9 +745,9 @@ func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, 
 
 	// We need to update the API object so that we know we've published the
 	// logs, we'll grab the latest one incase it has changed since we got here.
-	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Get(ctx, wf.Name, metav1.GetOptions{})
+	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Get(ctx, wf.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Printf("getting workflow %s/%s for annotations update failed, %v", newwf.Namespace, newwf.Name, err)
+		log.Printf("getting workflow %s/%s for annotations update failed, %v", wf.Namespace, wf.Name, err)
 		return
 	}
 
@@ -757,7 +757,7 @@ func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, 
 	}
 	upwf.Annotations[annAnnotationsPublished] = "true"
 
-	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Update(ctx, upwf, metav1.UpdateOptions{})
+	_, err = ws.client.ArgoprojV1alpha1().Workflows(upwf.Namespace).Update(ctx, upwf, metav1.UpdateOptions{})
 	if err != nil {
 		log.Printf("workflow %s/%s update for annotations update failed, %v", upwf.Namespace, upwf.Name, err)
 	}
