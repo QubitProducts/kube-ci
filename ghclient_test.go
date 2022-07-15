@@ -37,7 +37,13 @@ func (tgi *testGHClientInterface) StatusUpdate(ctx context.Context, info *github
 }
 
 func (tgi *testGHClientInterface) CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error) {
-	panic("not implemented") // TODO: Implement
+	id := int64(1)
+	res := &github.CheckRun{
+		Name: github.String(opts.Name),
+		ID:   &id,
+	}
+	tgi.src.addGithubCall("create_check_run", nil, res, opts)
+	return res, nil
 }
 
 func (tgi *testGHClientInterface) CreateDeployment(ctx context.Context, req *github.DeploymentRequest) (*github.Deployment, error) {
@@ -76,11 +82,25 @@ func (tgi *testGHClientInterface) CreateIssueComment(ctx context.Context, issueI
 	panic("not implemented") // TODO: Implement
 }
 
-//lint:ignore U1000 this will be used once we need to mock the GH client
+type githubCall struct {
+	args []interface{}
+	res  interface{}
+	err  error
+}
+
 type testGHClientSrc struct {
 	t *testing.T
 
 	statusUpdates map[int64][]GithubStatus
+
+	actions map[string][]githubCall
+}
+
+func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{}, args ...interface{}) {
+	if tcs.actions == nil {
+		tcs.actions = map[string][]githubCall{}
+	}
+	tcs.actions[call] = append(tcs.actions[call], githubCall{args: args})
 }
 
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {

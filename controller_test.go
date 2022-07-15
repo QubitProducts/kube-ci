@@ -129,7 +129,6 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	}
 
 	actions := filterInformerActions(f.client.Actions())
-	f.t.Logf("actions: %#v", actions)
 	for i, action := range actions {
 		if len(f.actions) < i+1 {
 			f.t.Errorf("%d unexpected actions: %#v", len(actions)-len(f.actions), actions[i:])
@@ -145,7 +144,6 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	}
 
 	k8sActions := filterInformerActions(f.kubeclient.Actions())
-	f.t.Logf("k8s actions: %#v", k8sActions)
 	for i, action := range k8sActions {
 		if len(f.k8sactions) < i+1 {
 			f.t.Errorf("%d unexpected k8s actions: %+v", len(k8sActions)-len(f.k8sactions), k8sActions[i:])
@@ -437,20 +435,37 @@ func (f *fixture) expectAnnotationsUpdate(wf *workflow.Workflow) {
 	}
 }
 
+func (f *fixture) expectWorkflowReset(wf *workflow.Workflow) {
+	wf = wf.DeepCopy()
+
+	wf.Annotations[annAnnotationsPublished] = "false"
+	// it would be nice if we could get the ID in from the
+	// github fake, but at least we know it starts as not "1"
+	// so much have been reset.
+	wf.Annotations[annCheckRunID] = "1"
+	f.expectUpdateWorkflowsAction(wf)
+}
+
 func TestCreateWorkflow(t *testing.T) {
 	var config Config
 	config.deployTemplates = regexp.MustCompile("^$")
 	config.actionTemplates = regexp.MustCompile("^$")
 	config.productionEnvironments = regexp.MustCompile("^$")
 
+	alreadyPublished := map[string]string{annAnnotationsPublished: "true"}
+
 	var tests = []struct {
-		name             string
-		phase            workflow.WorkflowPhase
-		extraAnnotations map[string]string
-		expectLogs       bool
+		name                string
+		phase               workflow.WorkflowPhase
+		extraAnnotations    map[string]string
+		expectLogs          bool
+		expectWorkflowReset bool
 	}{
-		{"normal_update", workflow.WorkflowRunning, nil, false},
-		{"normal_failure", workflow.WorkflowFailed, nil, true},
+		{"normal_pending", workflow.WorkflowPending, nil, false, false},
+		{"normal_running", workflow.WorkflowRunning, nil, false, false},
+		{"normal_failure", workflow.WorkflowFailed, nil, true, false},
+		{"restart_pending", workflow.WorkflowPending, alreadyPublished, false, true},
+		{"restart_running", workflow.WorkflowPending, alreadyPublished, false, true},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -470,6 +485,10 @@ func TestCreateWorkflow(t *testing.T) {
 
 			if tt.expectLogs {
 				f.expectAnnotationsUpdate(wf)
+			}
+
+			if tt.expectWorkflowReset {
+				f.expectWorkflowReset(wf)
 			}
 
 			f.run(wf, t)
