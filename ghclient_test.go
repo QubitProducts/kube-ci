@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"io"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-github/v32/github"
@@ -29,7 +30,10 @@ func (tgi *testGHClientInterface) UpdateCheckRun(ctx context.Context, id int64, 
 }
 
 func (tgi *testGHClientInterface) StatusUpdate(ctx context.Context, info *githubInfo, status GithubStatus) {
-	tgi.src.statusUpdates = append(tgi.src.statusUpdates, status)
+	if tgi.src.statusUpdates == nil {
+		tgi.src.statusUpdates = map[int64][]GithubStatus{}
+	}
+	tgi.src.statusUpdates[info.checkRunID] = append(tgi.src.statusUpdates[info.checkRunID], status)
 }
 
 func (tgi *testGHClientInterface) CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error) {
@@ -76,7 +80,7 @@ func (tgi *testGHClientInterface) CreateIssueComment(ctx context.Context, issueI
 type testGHClientSrc struct {
 	t *testing.T
 
-	statusUpdates []GithubStatus
+	statusUpdates map[int64][]GithubStatus
 }
 
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {
@@ -84,4 +88,21 @@ func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (g
 		instID: 1234,
 		src:    tcs,
 	}, nil
+}
+
+// getCheckRunStatuses
+func (tcs *testGHClientSrc) getCheckRunStatuses() map[string]*GithubStatus {
+	if tcs.statusUpdates == nil {
+		return nil
+	}
+
+	res := map[string]*GithubStatus{}
+	for crid, crss := range tcs.statusUpdates {
+		for _, crs := range crss {
+			// we should fold the github status updates, appending
+			// annotations etc, to mirror github's behaviour
+			res[strconv.Itoa(int(crid))] = &crs
+		}
+	}
+	return res
 }
