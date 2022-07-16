@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"io"
-	"strconv"
 	"testing"
 
 	"github.com/google/go-github/v32/github"
@@ -110,19 +109,45 @@ func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (g
 	}, nil
 }
 
-// getCheckRunStatuses
-func (tcs *testGHClientSrc) getCheckRunStatuses() map[string]*GithubStatus {
-	if tcs.statusUpdates == nil {
-		return nil
-	}
-
-	res := map[string]*GithubStatus{}
-	for crid, crss := range tcs.statusUpdates {
+// getCheckRunStatus
+func (tcs *testGHClientSrc) getCheckRunStatus() GithubStatus {
+	var res GithubStatus
+	for _, crss := range tcs.statusUpdates {
 		for _, crs := range crss {
 			// we should fold the github status updates, appending
 			// annotations etc, to mirror github's behaviour
-			res[strconv.Itoa(int(crid))] = &crs
+
+			if crs.Status != "" {
+				res.Status = crs.Status
+			}
+			if crs.Conclusion != "" {
+				res.Conclusion = crs.Conclusion
+			}
+			if crs.Text != "" {
+				res.Text = crs.Text
+			}
+			if crs.DetailsURL != "" {
+				res.DetailsURL = crs.DetailsURL
+			}
+			if crs.Title != "" {
+				res.Title = crs.Title
+			}
+			if crs.Summary != "" {
+				res.Summary = crs.Summary
+			}
+
+			if crs.Actions != nil {
+				res.Actions = crs.Actions
+			}
+
+			res.Annotations = append(res.Annotations, crs.Annotations...)
+
+			tcs.t.Logf("crs: %#v", crs)
 		}
+		// TODO: We'll just pick  random installID for now,
+		// tests should be enhanced to cater for different
+		// installs.
+		return res
 	}
 	return res
 }

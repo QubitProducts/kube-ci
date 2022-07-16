@@ -216,8 +216,8 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		ctx,
 		ghInfo,
 		GithubStatus{
-			status:     status,
-			conclusion: conclusion,
+			Status:     status,
+			Conclusion: conclusion,
 		},
 	)
 }
@@ -414,12 +414,12 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		ctx,
 		info,
 		GithubStatus{
-			title:      title,
-			summary:    summary,
-			status:     status,
-			conclusion: conclusion,
-			detailsURL: wfURL,
-			text:       text,
+			Title:      title,
+			Summary:    summary,
+			Status:     status,
+			Conclusion: conclusion,
+			DetailsURL: wfURL,
+			Text:       text,
 		},
 	)
 
@@ -600,9 +600,9 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 		context.Background(),
 		ghInfo,
 		GithubStatus{
-			title:   "Workflow Setup",
-			summary: "Creating workflow",
-			status:  "queued",
+			Title:   "Workflow Setup",
+			Summary: "Creating workflow",
+			Status:  "queued",
 		},
 	)
 
@@ -700,10 +700,10 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 			ctx,
 			ghInfo,
 			GithubStatus{
-				summary:     *summary,
-				text:        *text,
-				title:       *title,
-				annotations: anns,
+				Summary:     *summary,
+				Text:        *text,
+				Title:       *title,
+				Annotations: anns,
 				Actions:     actions,
 			},
 		)

@@ -18,16 +18,16 @@ import (
 // and deployment status into a common struct to make workflow
 // running agnostic to the reason the workflow was launched
 type GithubStatus struct {
-	status     string
-	conclusion string
-	detailsURL string
+	Status     string
+	Conclusion string
+	DetailsURL string
 	Actions    []*github.CheckRunAction
 
 	// output
-	title       string
-	summary     string
-	text        string
-	annotations []*github.CheckRunAnnotation
+	Title       string
+	Summary     string
+	Text        string
+	Annotations []*github.CheckRunAnnotation
 }
 
 // StatusUpdater in an interface for informing something about the an update on
@@ -418,10 +418,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		ctx,
 		info,
 		GithubStatus{
-			title:      *title,
-			summary:    "Creating Workflow",
-			status:     "queued",
-			conclusion: "",
+			Title:      *title,
+			Summary:    "Creating Workflow",
+			Status:     "queued",
+			Conclusion: "",
 		},
 	)
 
@@ -432,10 +432,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			ctx,
 			info,
 			GithubStatus{
-				title:      *title,
-				summary:    msg,
-				status:     "completed",
-				conclusion: "failure",
+				Title:      *title,
+				Summary:    msg,
+				Status:     "completed",
+				Conclusion: "failure",
 			},
 		)
 		log.Printf("unable to parse workflow for %s (%s), %v", repo, headbranch, err)
@@ -462,10 +462,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 				ctx,
 				info,
 				GithubStatus{
-					title:      *title,
-					summary:    err.Error(),
-					status:     "completed",
-					conclusion: "failure",
+					Title:      *title,
+					Summary:    err.Error(),
+					Status:     "completed",
+					Conclusion: "failure",
 				},
 			)
 			return err
@@ -479,10 +479,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			ctx,
 			info,
 			GithubStatus{
-				title:      *title,
-				summary:    err.message,
-				status:     "completed",
-				conclusion: "failure",
+				Title:      *title,
+				Summary:    err.message,
+				Status:     "completed",
+				Conclusion: "failure",
 			},
 		)
 		log.Printf(err.log)
@@ -520,10 +520,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			ctx,
 			info,
 			GithubStatus{
-				title:      *title,
-				summary:    fmt.Sprintf("creation of cache volume failed, %v", err),
-				status:     "completed",
-				conclusion: "failure",
+				Title:      *title,
+				Summary:    fmt.Sprintf("creation of cache volume failed, %v", err),
+				Status:     "completed",
+				Conclusion: "failure",
 			},
 		)
 		return err
@@ -536,10 +536,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			ctx,
 			info,
 			GithubStatus{
-				title:      *title,
-				status:     fmt.Sprintf("argo workflow creation failed, %v", err),
-				summary:    "completed",
-				conclusion: "failure",
+				Title:      *title,
+				Status:     fmt.Sprintf("argo workflow creation failed, %v", err),
+				Summary:    "completed",
+				Conclusion: "failure",
 			},
 		)
 

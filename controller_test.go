@@ -52,6 +52,7 @@ type fixture struct {
 	k8sactions    []k8stesting.Action
 	actions       []k8stesting.Action
 	githubActions map[string][]githubCall
+	githubStatus  GithubStatus
 	// Objects from here preloaded into NewSimpleFake.
 	kubeobjects []runtime.Object
 	objects     []runtime.Object
@@ -70,7 +71,7 @@ var (
 	noResyncPeriodFunc = func() time.Duration { return 0 }
 )
 
-func (f *fixture) newController(config Config) (*workflowSyncer, informers.SharedInformerFactory, k8sinformers.SharedInformerFactory, *testGHClientSrc) {
+func (f *fixture) newController(config Config, t *testing.T) (*workflowSyncer, informers.SharedInformerFactory, k8sinformers.SharedInformerFactory, *testGHClientSrc) {
 	f.client = workflowfake.NewSimpleClientset(f.objects...)
 	f.kubeclient = k8sfake.NewSimpleClientset(f.kubeobjects...)
 
@@ -78,7 +79,7 @@ func (f *fixture) newController(config Config) (*workflowSyncer, informers.Share
 	k8sI := k8sinformers.NewSharedInformerFactory(f.kubeclient, noResyncPeriodFunc())
 
 	storage := &fakeStorageManager{}
-	clients := &testGHClientSrc{}
+	clients := &testGHClientSrc{t: t}
 
 	c := newWorkflowSyncer(
 		f.kubeclient,
@@ -112,7 +113,7 @@ func (f *fixture) runExpectError(obj interface{}, t *testing.T) {
 }
 
 func (f *fixture) runController(obj interface{}, startInformers bool, expectError bool, t *testing.T) {
-	c, i, k8sI, gh := f.newController(f.config)
+	c, i, k8sI, gh := f.newController(f.config, t)
 	if startInformers {
 		stopCh := make(chan struct{})
 		defer close(stopCh)
@@ -161,9 +162,14 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 		f.t.Errorf("%d additional expected k8s actions:%+v", len(f.k8sactions)-len(k8sActions), f.k8sactions[len(k8sActions):])
 	}
 
-	checkGithubActions(f.githubActions, gh.actions, f.t)
+	compare(f.githubActions, gh.actions, f.t)
+	compare(f.githubStatus, gh.getCheckRunStatus(), f.t)
+}
 
-	f.t.Logf("githubStatus: %#v", gh.getCheckRunStatuses())
+func compare[K any](expected, actual K, t *testing.T) {
+	if diff := cmp.Diff(expected, actual); diff != "" {
+		t.Fatalf("\n(-want +got):\n%s", diff)
+	}
 }
 
 // checkAction verifies that expected and actual actions are equal and both have
@@ -502,6 +508,21 @@ func expectGithubCalls(fs ...setupf) []setupf {
 	return fs
 }
 
+func githubStatus(status, conclusion string) GithubStatus {
+	return GithubStatus{
+		Status:     status,
+		Conclusion: conclusion,
+		Actions:    nil,
+		Title:      "Workflow Run (default/wf))",
+
+		DetailsURL: "http://example.com/ui/workflows/default/wf",
+		Summary:    "child 'wf-1' failed",
+		Text:       "wf[1].release-staging(Failed): Error (exit code 2) \n",
+
+		Annotations: nil,
+	}
+}
+
 func TestCreateWorkflow(t *testing.T) {
 	var config Config
 	config.deployTemplates = regexp.MustCompile("^$")
@@ -517,12 +538,13 @@ func TestCreateWorkflow(t *testing.T) {
 		expectLogs          bool
 		expectWorkflowReset bool
 		setup               []setupf
+		expectStatus        GithubStatus
 	}{
-		{"normal_pending", workflow.WorkflowPending, nil, false, false, nil},
-		{"normal_running", workflow.WorkflowRunning, nil, false, false, nil},
-		{"normal_failure", workflow.WorkflowFailed, nil, true, false, nil},
-		{"restart_pending", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow"))},
-		{"restart_running", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow"))},
+		{"normal_pending", workflow.WorkflowPending, nil, false, false, nil, githubStatus("queued", "")},
+		{"normal_running", workflow.WorkflowRunning, nil, false, false, nil, githubStatus("in_progress", "")},
+		{"normal_failure", workflow.WorkflowFailed, nil, true, false, nil, githubStatus("completed", "failure")},
+		{"restart_pending", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow")), githubStatus("queued", "")},
+		{"restart_running", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow")), githubStatus("queued", "")},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -551,6 +573,8 @@ func TestCreateWorkflow(t *testing.T) {
 			if tt.expectWorkflowReset {
 				f.expectWorkflowReset(wf)
 			}
+
+			f.githubStatus = tt.expectStatus
 
 			f.run(wf, t)
 		})

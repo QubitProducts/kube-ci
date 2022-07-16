@@ -29,20 +29,20 @@ func (crr *checkRunUpdateRecorder) StatusUpdate(
 	info *githubInfo,
 	status GithubStatus,
 ) {
-	log.Print(status.summary)
+	log.Print(status.Summary)
 	opts := github.UpdateCheckRunOptions{
 		Name:   defaultCheckRunName,
-		Status: &status.status,
+		Status: &status.Status,
 		Output: &github.CheckRunOutput{
-			Title:   &status.title,
-			Summary: &status.summary,
+			Title:   &status.Title,
+			Summary: &status.Summary,
 		},
 	}
 
 	opts.Actions = status.Actions
 
-	if status.conclusion != "" {
-		opts.Conclusion = &status.conclusion
+	if status.Conclusion != "" {
+		opts.Conclusion = &status.Conclusion
 		opts.CompletedAt = &github.Timestamp{
 			Time: crr.now(),
 		}
