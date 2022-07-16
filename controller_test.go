@@ -40,8 +40,8 @@ func TestWFName(t *testing.T) {
 type fixture struct {
 	t *testing.T
 
-	client     *workflowfake.Clientset
-	kubeclient *k8sfake.Clientset
+	wfClient  *workflowfake.Clientset
+	k8sClient *k8sfake.Clientset
 
 	config Config
 
@@ -49,20 +49,20 @@ type fixture struct {
 	workflowsLister []*workflow.Workflow
 
 	// Actions expected to happen on the client.
-	k8sactions    []k8stesting.Action
-	actions       []k8stesting.Action
+	k8sActions    []k8stesting.Action
+	wfActions     []k8stesting.Action
 	githubActions map[string][]githubCall
 	githubStatus  GithubStatus
 	// Objects from here preloaded into NewSimpleFake.
-	kubeobjects []runtime.Object
-	objects     []runtime.Object
+	k8sObjects []runtime.Object
+	wfObjects  []runtime.Object
 }
 
 func newFixture(t *testing.T) *fixture {
 	f := &fixture{}
 	f.t = t
-	f.objects = []runtime.Object{}
-	f.kubeobjects = []runtime.Object{}
+	f.wfObjects = []runtime.Object{}
+	f.k8sObjects = []runtime.Object{}
 	return f
 }
 
@@ -72,18 +72,18 @@ var (
 )
 
 func (f *fixture) newController(config Config, t *testing.T) (*workflowSyncer, informers.SharedInformerFactory, k8sinformers.SharedInformerFactory, *testGHClientSrc) {
-	f.client = workflowfake.NewSimpleClientset(f.objects...)
-	f.kubeclient = k8sfake.NewSimpleClientset(f.kubeobjects...)
+	f.wfClient = workflowfake.NewSimpleClientset(f.wfObjects...)
+	f.k8sClient = k8sfake.NewSimpleClientset(f.k8sObjects...)
 
-	i := informers.NewSharedInformerFactory(f.client, noResyncPeriodFunc())
-	k8sI := k8sinformers.NewSharedInformerFactory(f.kubeclient, noResyncPeriodFunc())
+	i := informers.NewSharedInformerFactory(f.wfClient, noResyncPeriodFunc())
+	k8sI := k8sinformers.NewSharedInformerFactory(f.k8sClient, noResyncPeriodFunc())
 
 	storage := &fakeStorageManager{}
 	clients := &testGHClientSrc{t: t}
 
 	c := newWorkflowSyncer(
-		f.kubeclient,
-		f.client,
+		f.k8sClient,
+		f.wfClient,
 		i,
 		storage,
 		clients,
@@ -112,6 +112,25 @@ func (f *fixture) runExpectError(obj interface{}, t *testing.T) {
 	f.runController(obj, true, true, t)
 }
 
+func compareActions(text string, want, got []k8stesting.Action, t *testing.T) {
+	actions := filterInformerActions(got)
+	for i, action := range actions {
+		if len(want) < i+1 {
+			diff := cmp.Diff(nil, actions[i:])
+			t.Errorf("%d unexpected %s:\n%s", len(actions)-len(want), text, diff)
+			break
+		}
+
+		expectedAction := want[i]
+		checkAction(expectedAction, action, t)
+	}
+
+	if len(want) > len(actions) {
+		diff := cmp.Diff(want[len(got):], nil)
+		t.Errorf("missing %d %s: %+v", len(want)-len(got), text, diff)
+	}
+}
+
 func (f *fixture) runController(obj interface{}, startInformers bool, expectError bool, t *testing.T) {
 	c, i, k8sI, gh := f.newController(f.config, t)
 	if startInformers {
@@ -132,43 +151,15 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	default:
 	}
 
-	actions := filterInformerActions(f.client.Actions())
-	for i, action := range actions {
-		if len(f.actions) < i+1 {
-			f.t.Errorf("%d unexpected actions: %#v", len(actions)-len(f.actions), actions[i:])
-			break
-		}
-
-		expectedAction := f.actions[i]
-		checkAction(expectedAction, action, f.t)
-	}
-
-	if len(f.actions) > len(actions) {
-		f.t.Errorf("%d additional expected actions:%+v", len(f.actions)-len(actions), f.actions[len(actions):])
-	}
-
-	k8sActions := filterInformerActions(f.kubeclient.Actions())
-	for i, action := range k8sActions {
-		if len(f.k8sactions) < i+1 {
-			f.t.Errorf("%d unexpected k8s actions: %+v", len(k8sActions)-len(f.k8sactions), k8sActions[i:])
-			break
-		}
-
-		expectedAction := f.k8sactions[i]
-		checkAction(expectedAction, action, f.t)
-	}
-
-	if len(f.k8sactions) > len(k8sActions) {
-		f.t.Errorf("%d additional expected k8s actions:%+v", len(f.k8sactions)-len(k8sActions), f.k8sactions[len(k8sActions):])
-	}
-
-	compare(f.githubActions, gh.actions, f.t)
-	compare(f.githubStatus, gh.getCheckRunStatus(), f.t)
+	compareActions("workflow actions", f.wfActions, f.wfClient.Actions(), t)
+	compareActions("kubernetes actions", f.k8sActions, f.k8sClient.Actions(), t)
+	compare("wrong github calls", f.githubActions, gh.actions, f.t)
+	compare("wrong Github Check Run status", f.githubStatus, gh.getCheckRunStatus(), f.t)
 }
 
-func compare[K any](expected, actual K, t *testing.T) {
+func compare[K any](text string, expected, actual K, t *testing.T) {
 	if diff := cmp.Diff(expected, actual); diff != "" {
-		t.Fatalf("\n(-want +got):\n%s", diff)
+		t.Fatalf("%s\n(-want +got):\n%s", text, diff)
 	}
 }
 
@@ -229,7 +220,7 @@ func filterInformerActions(actions []k8stesting.Action) []k8stesting.Action {
 }
 
 func (f *fixture) expectCreateWorkflowAction(rs *workflow.Workflow) {
-	f.actions = append(f.actions,
+	f.wfActions = append(f.wfActions,
 		k8stesting.NewCreateAction(schema.GroupVersionResource{
 			Resource: "workflows",
 			Group:    workflow.SchemeGroupVersion.Group,
@@ -239,7 +230,7 @@ func (f *fixture) expectCreateWorkflowAction(rs *workflow.Workflow) {
 }
 
 func (f *fixture) expectUpdateWorkflowsAction(rs *workflow.Workflow) {
-	f.actions = append(f.actions, k8stesting.NewUpdateAction(schema.GroupVersionResource{
+	f.wfActions = append(f.wfActions, k8stesting.NewUpdateAction(schema.GroupVersionResource{
 		Resource: "workflows",
 		Group:    workflow.SchemeGroupVersion.Group,
 		Version:  workflow.SchemeGroupVersion.Version,
@@ -415,7 +406,7 @@ func newPod(namespace, name string) *corev1.Pod {
 }
 
 func (f *fixture) expectWorkflowUpdate(wf *workflow.Workflow) {
-	f.actions = append(f.actions,
+	f.wfActions = append(f.wfActions,
 		k8stesting.NewUpdateAction(schema.GroupVersionResource{
 			Resource: "workflows",
 			Group:    workflow.SchemeGroupVersion.Group,
@@ -436,7 +427,7 @@ func (f *fixture) expectPodGetLogs(namespace, name string) {
 	action.Subresource = "log"
 	action.Value = &corev1.PodLogOptions{Container: "main"}
 
-	f.k8sactions = append(f.k8sactions, action)
+	f.k8sActions = append(f.k8sActions, action)
 }
 
 func (f *fixture) expectAnnotationsUpdate(wf *workflow.Workflow) {
@@ -610,6 +601,15 @@ func TestCreateWorkflow(t *testing.T) {
 			githubStatus("completed", "failure"),
 		},
 		{
+			"normal_error",
+			workflow.WorkflowError,
+			nil,
+			true,
+			false,
+			nil,
+			githubStatus("completed", "failure"),
+		},
+		{
 			"restart_pending",
 			workflow.WorkflowPending,
 			alreadyPublished,
@@ -645,8 +645,8 @@ func TestCreateWorkflow(t *testing.T) {
 			}
 
 			pod := newPod("default", "wf-1")
-			f.kubeobjects = append(f.kubeobjects, pod)
-			f.objects = append(f.objects, wf)
+			f.k8sObjects = append(f.k8sObjects, pod)
+			f.wfObjects = append(f.wfObjects, wf)
 
 			if tt.expectLogs {
 				f.expectAnnotationsUpdate(wf)
