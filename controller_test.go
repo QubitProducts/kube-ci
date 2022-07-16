@@ -265,7 +265,6 @@ kind: Workflow
 metadata:
   annotations:
     kube-ci.qutics.com/branch: testdeploy
-    kube-ci.qutics.com/cacheScope: project
     kube-ci.qutics.com/cacheSize: 20Gi
     kube-ci.qutics.com/check-run-id: "7319927949"
     kube-ci.qutics.com/check-run-name: Argo Workflow
@@ -508,11 +507,11 @@ func expectGithubCalls(fs ...setupf) []setupf {
 	return fs
 }
 
-func githubStatus(status, conclusion string) GithubStatus {
+func githubStatus(status, conclusion string, actions ...*github.CheckRunAction) GithubStatus {
 	return GithubStatus{
 		Status:     status,
 		Conclusion: conclusion,
-		Actions:    nil,
+		Actions:    actions,
 		Title:      "Workflow Run (default/wf))",
 
 		DetailsURL: "http://example.com/ui/workflows/default/wf",
@@ -540,11 +539,78 @@ func TestCreateWorkflow(t *testing.T) {
 		setup               []setupf
 		expectStatus        GithubStatus
 	}{
-		{"normal_pending", workflow.WorkflowPending, nil, false, false, nil, githubStatus("queued", "")},
-		{"normal_running", workflow.WorkflowRunning, nil, false, false, nil, githubStatus("in_progress", "")},
-		{"normal_failure", workflow.WorkflowFailed, nil, true, false, nil, githubStatus("completed", "failure")},
-		{"restart_pending", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow")), githubStatus("queued", "")},
-		{"restart_running", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow")), githubStatus("queued", "")},
+		{
+			"normal_pending",
+			workflow.WorkflowPending,
+			nil,
+			false,
+			false,
+			nil,
+			githubStatus("queued", ""),
+		},
+		{
+			"normal_running",
+			workflow.WorkflowRunning,
+			nil,
+			false,
+			false,
+			nil,
+			githubStatus("in_progress", ""),
+		},
+		{
+			"normal_succeeded",
+			workflow.WorkflowSucceeded,
+			nil,
+			true,
+			false,
+			nil,
+			githubStatus("completed", "success"),
+		},
+		{
+			"normal_succeeded_with_branch_volume",
+			workflow.WorkflowSucceeded,
+			map[string]string{"kube-ci.qutics.com/cacheScope": "branch"},
+			true,
+			false,
+			nil,
+			githubStatus("completed", "success"),
+		},
+		{
+			"normal_succeeded_with_project_volume",
+			workflow.WorkflowSucceeded,
+			map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
+			true,
+			false,
+			nil,
+			githubStatus("completed", "success"),
+		},
+		{
+			"normal_failure",
+			workflow.WorkflowFailed,
+			nil,
+			true,
+			false,
+			nil,
+			githubStatus("completed", "failure"),
+		},
+		{
+			"restart_pending",
+			workflow.WorkflowPending,
+			alreadyPublished,
+			false,
+			true,
+			expectGithubCalls(createCheckRun("queued", "Creating workflow")),
+			githubStatus("queued", ""),
+		},
+		{
+			"restart_running",
+			workflow.WorkflowPending,
+			alreadyPublished,
+			false,
+			true,
+			expectGithubCalls(createCheckRun("queued", "Creating workflow")),
+			githubStatus("queued", ""),
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
