@@ -601,10 +601,13 @@ func TestCreateWorkflow(t *testing.T) {
 			githubStatus("completed", "failure"),
 		},
 		{
+			// TODO: This might want further thought, a workflow errors if something
+			// went wrong that was not he fault of the workflow, the workflow may be
+			// retried. so it may not be sensile to mark it as completed.
 			"normal_error",
 			workflow.WorkflowError,
 			nil,
-			true,
+			false,
 			false,
 			nil,
 			githubStatus("completed", "failure"),

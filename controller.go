@@ -324,6 +324,9 @@ func completionStatus(wf *workflow.Workflow) (string, string) {
 			conclusion = cancelled
 		}
 	case workflow.WorkflowError:
+		// TODO: This might want further thought, a workflow errors if something
+		// went wrong that was not he fault of the workflow, the workflow may be
+		// retried. so it may not be sensile to mark it as completed.
 		status = completed
 		conclusion = failure
 	case workflow.WorkflowSucceeded:
