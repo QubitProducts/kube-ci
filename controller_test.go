@@ -10,6 +10,7 @@ import (
 	workflowfake "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned/fake"
 	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-github/v32/github"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,9 +47,11 @@ type fixture struct {
 
 	// Objects to put in the store.
 	workflowsLister []*workflow.Workflow
+
 	// Actions expected to happen on the client.
-	k8sactions []k8stesting.Action
-	actions    []k8stesting.Action
+	k8sactions    []k8stesting.Action
+	actions       []k8stesting.Action
+	githubActions map[string][]githubCall
 	// Objects from here preloaded into NewSimpleFake.
 	kubeobjects []runtime.Object
 	objects     []runtime.Object
@@ -158,6 +161,8 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 		f.t.Errorf("%d additional expected k8s actions:%+v", len(f.k8sactions)-len(k8sActions), f.k8sactions[len(k8sActions):])
 	}
 
+	checkGithubActions(f.githubActions, gh.actions, f.t)
+
 	f.t.Logf("githubStatus: %#v", gh.getCheckRunStatuses())
 }
 
@@ -191,6 +196,12 @@ func checkAction(expected, actual k8stesting.Action, t *testing.T) {
 		if diff := cmp.Diff(expObject, object); diff != "" {
 			t.Fatalf("\n(-want +got):\n%s", diff)
 		}
+	}
+}
+
+func checkGithubActions(expected, actual map[string][]githubCall, t *testing.T) {
+	if diff := cmp.Diff(expected, actual); diff != "" {
+		t.Fatalf("\n(-want +got):\n%s", diff)
 	}
 }
 
@@ -446,6 +457,51 @@ func (f *fixture) expectWorkflowReset(wf *workflow.Workflow) {
 	f.expectUpdateWorkflowsAction(wf)
 }
 
+func (f *fixture) expectGithubRawCall(call string, err error, res interface{}, args ...interface{}) {
+	if f.githubActions == nil {
+		f.githubActions = map[string][]githubCall{}
+	}
+	f.githubActions[call] = append(f.githubActions[call], githubCall{
+		Args: args,
+		Err:  err,
+		Res:  res,
+	})
+}
+
+func (f *fixture) expectGithubCallErr(call string, err error, args ...interface{}) {
+	f.expectGithubRawCall(call, err, nil, args...)
+}
+
+func (f *fixture) expectGithubCall(call string, res interface{}, args ...interface{}) {
+	f.expectGithubRawCall(call, nil, res, args...)
+}
+
+type setupf func(f *fixture)
+
+func createCheckRunRaw(opt github.CreateCheckRunOptions) setupf {
+	return func(f *fixture) {
+		f.expectGithubCall("create_check_run", nil, opt)
+	}
+}
+
+func createCheckRun(status, summary string) setupf {
+	return createCheckRunRaw(
+		github.CreateCheckRunOptions{
+			Name:    "Argo Workflow",
+			HeadSHA: "50dbe643f76dcd92c4c935455a46687c903e1b7d",
+			Status:  github.String(status),
+			Output: &github.CheckRunOutput{
+				Title:   github.String("Workflow Setup"),
+				Summary: github.String(summary),
+			},
+		},
+	)
+}
+
+func expectGithubCalls(fs ...setupf) []setupf {
+	return fs
+}
+
 func TestCreateWorkflow(t *testing.T) {
 	var config Config
 	config.deployTemplates = regexp.MustCompile("^$")
@@ -460,18 +516,23 @@ func TestCreateWorkflow(t *testing.T) {
 		extraAnnotations    map[string]string
 		expectLogs          bool
 		expectWorkflowReset bool
+		setup               []setupf
 	}{
-		{"normal_pending", workflow.WorkflowPending, nil, false, false},
-		{"normal_running", workflow.WorkflowRunning, nil, false, false},
-		{"normal_failure", workflow.WorkflowFailed, nil, true, false},
-		{"restart_pending", workflow.WorkflowPending, alreadyPublished, false, true},
-		{"restart_running", workflow.WorkflowPending, alreadyPublished, false, true},
+		{"normal_pending", workflow.WorkflowPending, nil, false, false, nil},
+		{"normal_running", workflow.WorkflowRunning, nil, false, false, nil},
+		{"normal_failure", workflow.WorkflowFailed, nil, true, false, nil},
+		{"restart_pending", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow"))},
+		{"restart_running", workflow.WorkflowPending, alreadyPublished, false, true, expectGithubCalls(createCheckRun("queued", "Creating workflow"))},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
 			f.config = config
+
+			for _, setup := range tt.setup {
+				setup(f)
+			}
 
 			wf := baseTestWorkflow()
 			wf.Status.Phase = tt.phase

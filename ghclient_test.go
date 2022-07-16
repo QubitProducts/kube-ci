@@ -83,9 +83,9 @@ func (tgi *testGHClientInterface) CreateIssueComment(ctx context.Context, issueI
 }
 
 type githubCall struct {
-	args []interface{}
-	res  interface{}
-	err  error
+	Args []interface{}
+	Res  interface{}
+	Err  error
 }
 
 type testGHClientSrc struct {
@@ -100,7 +100,7 @@ func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{
 	if tcs.actions == nil {
 		tcs.actions = map[string][]githubCall{}
 	}
-	tcs.actions[call] = append(tcs.actions[call], githubCall{args: args})
+	tcs.actions[call] = append(tcs.actions[call], githubCall{Args: args})
 }
 
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {
