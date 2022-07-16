@@ -507,6 +507,22 @@ func expectGithubCalls(fs ...setupf) []setupf {
 	return fs
 }
 
+func volumeAction(scope string) *github.CheckRunAction {
+	if scope == "" {
+		return nil
+	}
+	task := "clearCache"
+	if scope == "branch" {
+		task = "clearCacheBranch"
+	}
+
+	return &github.CheckRunAction{
+		Label:       "Clear Cache",
+		Description: "delete the cache volume for this build",
+		Identifier:  task,
+	}
+}
+
 func githubStatus(status, conclusion string, actions ...*github.CheckRunAction) GithubStatus {
 	return GithubStatus{
 		Status:     status,
@@ -573,7 +589,7 @@ func TestCreateWorkflow(t *testing.T) {
 			true,
 			false,
 			nil,
-			githubStatus("completed", "success"),
+			githubStatus("completed", "success", volumeAction("branch")),
 		},
 		{
 			"normal_succeeded_with_project_volume",
@@ -582,7 +598,7 @@ func TestCreateWorkflow(t *testing.T) {
 			true,
 			false,
 			nil,
-			githubStatus("completed", "success"),
+			githubStatus("completed", "success", volumeAction("project")),
 		},
 		{
 			"normal_failure",

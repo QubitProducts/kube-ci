@@ -638,19 +638,41 @@ func getWFVolumeScope(wf *workflow.Workflow) string {
 	}
 }
 
-func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *githubInfo, allAnns []*github.CheckRunAnnotation, title, summary, text *string) error {
-	var err error
+var ()
+
+func usesCacheVolume(wf *workflow.Workflow) bool {
+	if wf.Annotations == nil {
+		return false
+	}
+	scope := wf.Annotations[annCacheVolumeScope]
+	if scope == scopeNone || scope == "" {
+		return false
+	}
+	return true
+}
+
+func clearCacheAction(wf *workflow.Workflow) *github.CheckRunAction {
+	if !usesCacheVolume(wf) {
+		return nil
+	}
+
 	clearCacheAction := "clearCache"
 	if getWFVolumeScope(wf) == scopeBranch {
 		clearCacheAction = "clearCacheBranch"
 	}
+	return &github.CheckRunAction{
+		Label:       "Clear Cache",
+		Description: "delete the cache volume for this build",
+		Identifier:  clearCacheAction,
+	}
+}
 
-	actions := []*github.CheckRunAction{
-		{
-			Label:       "Clear Cache",
-			Description: "delete the cache volume for this build",
-			Identifier:  clearCacheAction,
-		},
+func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *githubInfo, allAnns []*github.CheckRunAnnotation, title, summary, text *string) error {
+	var err error
+
+	var actions []*github.CheckRunAction
+	if action := clearCacheAction(wf); action != nil {
+		actions = append(actions, action)
 	}
 
 	if wf.Status.Phase == workflow.WorkflowSucceeded {
