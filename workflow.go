@@ -132,10 +132,10 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 	}
 }
 
-// updateWorkflow, this amends the workflow from the repo with the
+// decorateWorkflow, this amends the workflow from the repo with the
 // details we need to track it and update the status on external
 // sources.
-func (ws *workflowSyncer) updateWorkflow(
+func (ws *workflowSyncer) decorateWorkflow(
 	wf *workflow.Workflow,
 	instID int,
 	repo *github.Repository,
@@ -542,7 +542,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	)
 
 	wf = wf.DeepCopy()
-	ws.updateWorkflow(
+	ws.decorateWorkflow(
 		wf,
 		ghClient.GetInstallID(),
 		repo,

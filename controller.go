@@ -437,10 +437,10 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 	)
 
 	if status == "completed" {
-		ws.completeCheckRun(ctx, &title, &summary, &text, wf, info)
+		_, err = ws.completeCheckRun(ctx, &title, &summary, &text, wf, info)
 	}
 
-	return nil
+	return err
 }
 
 func (ws *workflowSyncer) process() bool {
@@ -476,6 +476,7 @@ func (ws *workflowSyncer) process() bool {
 
 	err = ws.sync(wf)
 	if err != nil {
+		log.Printf("processing event for %s/%s failed, %v", wf.Namespace, wf.Name, err)
 		runtime.HandleError(err)
 		return true
 	}
@@ -748,25 +749,26 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 
 // completeCheckRun is used to publish any annotations found in the logs from a check run.
 // There are a bunch of reasons this could fail.
-func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, text *string, wf *workflow.Workflow, ghInfo *githubInfo) {
+func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, text *string, wf *workflow.Workflow, ghInfo *githubInfo) (*workflow.Workflow, error) {
 	if wf.Status.Phase != workflow.WorkflowFailed &&
 		wf.Status.Phase != workflow.WorkflowSucceeded {
-		return
+		return wf, nil
 	}
 
 	var allAnns []*github.CheckRunAnnotation
+	containerName := "main"
 	for _, n := range wf.Status.Nodes {
 		if n.Type != "Pod" {
 			continue
 		}
-		logr, err := getPodLogs(ctx, ws.kubeclient, n.ID, wf.Namespace, "main")
+		logr, err := getPodLogs(ctx, ws.kubeclient, n.ID, wf.Namespace, containerName)
 		if err != nil {
 			log.Printf("getting pod logs failed, %v", err)
 			continue
 		}
 		anns, err := parseAnnotations(logr, "")
 		if err != nil {
-			log.Printf("parsing annotations failed, %v", err)
+			log.Printf("parsing annotations for %s/%s (%s) failed, %v", wf.Namespace, wf.Name, containerName, err)
 			continue
 		}
 		allAnns = append(allAnns, anns...)
@@ -774,28 +776,39 @@ func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, 
 
 	err := ws.ghCompleteCheckRun(wf, ghInfo, allAnns, title, summary, text)
 	if err != nil {
-		log.Printf("completeing github checkrun for %s/%s failed, %v", wf.Namespace, wf.Name, err)
-		return
+		return nil, fmt.Errorf("completing github check-run failed, %w", err)
 	}
 
+	wf, err = ws.updateWorkflow(ctx, wf, func(wf *workflow.Workflow) {
+		if wf.Annotations == nil {
+			wf.Annotations = map[string]string{}
+		}
+		wf.Annotations[annAnnotationsPublished] = "true"
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("adding annotations-published annotation failed, %w", err)
+	}
+
+	return wf, nil
+}
+
+func (ws *workflowSyncer) updateWorkflow(ctx context.Context, wf *workflow.Workflow, mutate func(wf *workflow.Workflow)) (*workflow.Workflow, error) {
 	// We need to update the API object so that we know we've published the
-	// logs, we'll grab the latest one incase it has changed since we got here.
+	// logs, we'll grab the latest one in case it has changed since we got here.
 	newwf, err := ws.client.ArgoprojV1alpha1().Workflows(wf.Namespace).Get(ctx, wf.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Printf("getting workflow %s/%s for annotations update failed, %v", wf.Namespace, wf.Name, err)
-		return
+		return nil, fmt.Errorf("getting workflow %s/%s update failed, %w", wf.Namespace, wf.Name, err)
 	}
 
 	upwf := newwf.DeepCopy()
-	if upwf.Annotations == nil {
-		upwf.Annotations = map[string]string{}
-	}
-	upwf.Annotations[annAnnotationsPublished] = "true"
+	mutate(upwf)
 
-	_, err = ws.client.ArgoprojV1alpha1().Workflows(upwf.Namespace).Update(ctx, upwf, metav1.UpdateOptions{})
+	upwf, err = ws.client.ArgoprojV1alpha1().Workflows(upwf.Namespace).Update(ctx, upwf, metav1.UpdateOptions{})
 	if err != nil {
-		log.Printf("workflow %s/%s update for annotations update failed, %v", upwf.Namespace, upwf.Name, err)
+		return nil, fmt.Errorf("workflow %s/%s update failed, %w", upwf.Namespace, upwf.Name, err)
 	}
+	return upwf, nil
 }
 
 func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {
