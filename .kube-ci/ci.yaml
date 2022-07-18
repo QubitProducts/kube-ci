@@ -46,6 +46,9 @@ spec:
       - git:
           repo: '{{workflow.parameters.repo}}'
           revision: '{{workflow.parameters.revision}}'
+          sshPrivateKeySecret:
+            key: ssh-private-key
+            name: ci-secrets
         name: code
         path: /src
     metadata: {}
