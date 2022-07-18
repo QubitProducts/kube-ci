@@ -44,7 +44,7 @@ spec:
     inputs:
       artifacts:
       - git:
-          repo: '{{workflow.parameters.repo_git_url}}'
+          repo: '{{workflow.parameters.repo}}'
           revision: '{{workflow.parameters.revision}}'
         name: code
         path: /src
