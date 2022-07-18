@@ -18,8 +18,6 @@ import (
 	k8sinformers "k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
-
-	"k8s.io/client-go/tools/cache"
 )
 
 type fakeStorageManager struct {
@@ -63,7 +61,6 @@ func newFixture(t *testing.T) *fixture {
 }
 
 var (
-	alwaysReady        = func() bool { return true }
 	noResyncPeriodFunc = func() time.Duration { return 0 }
 )
 
@@ -104,6 +101,7 @@ func (f *fixture) run(obj interface{}, t *testing.T) {
 	f.runController(obj, true, false, t)
 }
 
+//lint:ignore U1000 we will need this at some point
 func (f *fixture) runExpectError(obj interface{}, t *testing.T) {
 	f.runController(obj, true, true, t)
 }
@@ -172,29 +170,26 @@ func checkAction(expected, actual k8stesting.Action, t *testing.T) {
 		return
 	}
 
-	switch a := actual.(type) {
-	case k8stesting.CreateAction:
+	verb := actual.GetVerb()
+	switch verb {
+	case "create":
 		e, _ := expected.(k8stesting.CreateAction)
+		act := actual.(k8stesting.CreateAction)
 		expObject := e.GetObject()
-		object := a.GetObject()
+		object := act.GetObject()
 
 		if diff := cmp.Diff(expObject, object); diff != "" {
 			t.Fatalf("\n(-want +got):\n%s", diff)
 		}
-	case k8stesting.UpdateAction:
+	case "update":
 		e, _ := expected.(k8stesting.UpdateAction)
 		expObject := e.GetObject()
-		object := a.GetObject()
+		act := actual.(k8stesting.UpdateAction)
+		object := act.GetObject()
 
 		if diff := cmp.Diff(expObject, object); diff != "" {
 			t.Fatalf("\n(-want +got):\n%s", diff)
 		}
-	}
-}
-
-func checkGithubActions(expected, actual map[string][]githubCall, t *testing.T) {
-	if diff := cmp.Diff(expected, actual); diff != "" {
-		t.Fatalf("\n(-want +got):\n%s", diff)
 	}
 }
 
@@ -215,6 +210,7 @@ func filterInformerActions(actions []k8stesting.Action) []k8stesting.Action {
 	return ret
 }
 
+//lint:ignore U1000 we will need this at some point
 func (f *fixture) expectCreateWorkflowAction(rs *workflow.Workflow) {
 	f.wfActions = append(f.wfActions,
 		k8stesting.NewCreateAction(schema.GroupVersionResource{
@@ -231,15 +227,6 @@ func (f *fixture) expectUpdateWorkflowsAction(rs *workflow.Workflow) {
 		Group:    workflow.SchemeGroupVersion.Group,
 		Version:  workflow.SchemeGroupVersion.Version,
 	}, rs.Namespace, rs))
-}
-
-func getKey(obj interface{}, t *testing.T) string {
-	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-	if err != nil {
-		t.Errorf("Unexpected error getting key for %v: %v", obj, err)
-		return ""
-	}
-	return key
 }
 
 func newWorkflow(str string) *workflow.Workflow {
@@ -400,6 +387,7 @@ func newPod(namespace, name string) *corev1.Pod {
 	}
 }
 
+//lint:ignore U1000 we will need this at some point
 func (f *fixture) expectWorkflowUpdate(wf *workflow.Workflow) {
 	f.wfActions = append(f.wfActions,
 		k8stesting.NewUpdateAction(schema.GroupVersionResource{
@@ -459,6 +447,7 @@ func (f *fixture) expectGithubRawCall(call string, err error, res interface{}, a
 	})
 }
 
+//lint:ignore U1000 we will need this at some point
 func (f *fixture) expectGithubCallErr(call string, err error, args ...interface{}) {
 	f.expectGithubRawCall(call, err, nil, args...)
 }
