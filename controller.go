@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -364,23 +365,119 @@ func deployStatusFromPhase(p workflow.NodePhase) string {
 	}
 }
 
-func (ws *workflowSyncer) syncDeployments(wf *workflow.Workflow, info *githubInfo) {
+func (ws *workflowSyncer) isProdEnvironment(env string) bool {
+	if ws.config.productionEnvironments == nil {
+		return false
+	}
+	return ws.config.productionEnvironments.MatchString(env)
+}
+
+func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *workflow.Workflow, info *githubInfo, n workflow.NodeStatus, env string) (*workflow.Workflow, error) {
+	desc := fmt.Sprintf("deploying %s/%s (%s) to %s", info.orgName, info.repoName, n.TemplateName, env)
+	deployID := info.deploymentIDs[n.ID]
+
+	if deployID == 0 {
+		// we need to create a new deployment and record it here
+		opts := &github.DeploymentRequest{
+			Environment:           github.String(env),
+			Task:                  github.String(n.TemplateName),
+			ProductionEnvironment: github.Bool(ws.isProdEnvironment(env)),
+			Ref:                   github.String(wf.GetAnnotations()[annCommit]),
+			Payload:               DeploymentPayload{Passive: true}, // this makes sure we don't launch another deploy
+			Description:           github.String(desc),
+			TransientEnvironment:  nil,                // TODO(tcm): support transient environments
+			AutoMerge:             github.Bool(false), // TODO(tcm): support auto-merge
+		}
+		dep, err := info.ghClient.CreateDeployment(ctx, opts)
+		if err != nil {
+			return nil, fmt.Errorf("could not create on-demand deployment, %w", err)
+		}
+
+		wf, err = ws.updateWorkflow(ctx, wf, func(wf *workflow.Workflow) {
+			if wf.Annotations == nil {
+				wf.Annotations = map[string]string{}
+			}
+			wf.Annotations[annDeploymentIDs+n.ID] = strconv.Itoa(int(dep.GetID()))
+		})
+		if err != nil {
+			// TODO(tcm): We should probably scrap the deployment we just created
+			return nil, fmt.Errorf("could not update with on-demand deployment, %w", err)
+		}
+	}
+
+	return wf, nil
+}
+
+func (ws *workflowSyncer) getDeployNodeEnv(n workflow.NodeStatus) string {
+	env := ""
+	if n.Inputs != nil {
+		for _, p := range n.Inputs.Parameters {
+			if p.Name == ws.config.EnvironmentParameter && p.Value != nil {
+				env = p.Value.String()
+				break
+			}
+		}
+	}
+	return env
+}
+
+func (ws *workflowSyncer) syncDeployments(ctx context.Context, wf *workflow.Workflow, info *githubInfo) (*workflow.Workflow, error) {
 	for _, n := range wf.Status.Nodes {
 		if n.TemplateName == "" || !ws.config.deployTemplates.MatchString(n.TemplateName) {
 			continue
 		}
 
-		status := deployStatusFromPhase(n.Phase)
-		if status == "" {
+		state := deployStatusFromPhase(n.Phase)
+		if state == "" {
 			// not a phase we care about
 			continue
 		}
 
+		env := ws.getDeployNodeEnv(n)
+		if env == "" {
+			// TODO(tcm): need to report to the user that the deploy failed as we
+			// couldn't work out which env was being deployed to
+		}
+
 		deployID := info.deploymentIDs[n.ID]
 		if deployID == 0 {
-			// we need to create a new deployment and record it here
+			ws.createOnDemandDeployment(ctx, wf, info, n, env)
+		}
+
+		desc := fmt.Sprintf("deploying %s/%s (%s) to %s: %s", info.orgName, info.repoName, n.TemplateName, env, state)
+		opts := &github.DeploymentStatusRequest{
+			State:        github.String(state),
+			LogURL:       github.String(ws.nodeURL(wf, n)),
+			Description:  github.String(desc),
+			Environment:  github.String(env),
+			AutoInactive: github.Bool(true), // TODO(tcm): we should probably make auto-inactive controllable
+		}
+
+		_, err := info.ghClient.CreateDeploymentStatus(ctx, deployID, opts)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't set workflow status, %w", err)
 		}
 	}
+	return wf, nil
+}
+
+func (ws *workflowSyncer) wfURL(wf *workflow.Workflow) string {
+	return fmt.Sprintf(
+		"%s/workflows/%s/%s",
+		ws.argoUIBase,
+		wf.Namespace,
+		wf.Name)
+}
+func (ws *workflowSyncer) nodeURL(wf *workflow.Workflow, n workflow.NodeStatus) string {
+	base := ws.wfURL(wf)
+	u, _ := url.Parse(base)
+	u.Path = fmt.Sprintf("%s/%s", u.Path, n.ID)
+	vs := u.Query()
+	vs.Set("tab", "workflow")
+	vs.Set("nodeId", n.ID)
+	vs.Set("sidePanel", fmt.Sprintf("logs:%s:main", n.ID))
+	u.RawQuery = vs.Encode()
+	return u.String()
 }
 
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
@@ -403,18 +500,15 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		return nil
 	}
 
-	ws.syncDeployments(wf, info)
+	wf, err = ws.syncDeployments(ctx, wf, info)
+	if err != nil {
+		return err
+	}
 
 	status, conclusion := completionStatus(wf)
 	if status == "" {
 		return nil
 	}
-
-	wfURL := fmt.Sprintf(
-		"%s/workflows/%s/%s",
-		ws.argoUIBase,
-		wf.Namespace,
-		wf.Name)
 
 	summary := wf.Status.Message
 
@@ -431,7 +525,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 			Summary:    summary,
 			Status:     status,
 			Conclusion: conclusion,
-			DetailsURL: wfURL,
+			DetailsURL: ws.wfURL(wf),
 			Text:       text,
 		},
 	)

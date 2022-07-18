@@ -147,7 +147,7 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 
 	compareActions("workflow actions", f.wfActions, f.wfClient.Actions(), t)
 	compareActions("kubernetes actions", f.k8sActions, f.k8sClient.Actions(), t)
-	compare("wrong github calls", f.githubActions, gh.actions, f.t)
+	compareGithubActions("wrong github calls", f.githubActions, gh.actions, f.t)
 	compare("wrong Github Check Run status", f.githubStatus, gh.getCheckRunStatus(), f.t)
 }
 
@@ -155,6 +155,23 @@ func compare[K any](text string, expected, actual K, t *testing.T) {
 	if diff := cmp.Diff(expected, actual); diff != "" {
 		t.Fatalf("%s\n(-want +got):\n%s", text, diff)
 	}
+}
+
+func compareGithubActions(text string, want, got map[string][]githubCall, t *testing.T) {
+	// All the github calls here are mocked, there's no point in comparing
+	// the results
+	for i := range got {
+		for j := range got[i] {
+			got[i][j].Res = nil
+		}
+	}
+	for i := range want {
+		for j := range want[i] {
+			want[i][j].Res = nil
+		}
+	}
+
+	compare(text, want, got, t)
 }
 
 // checkAction verifies that expected and actual actions are equal and both have
@@ -425,6 +442,14 @@ func (f *fixture) expectAnnotationsUpdate(wf *workflow.Workflow) {
 	}
 }
 
+// When we are creating deployments on-demand for running steps,
+// we expect to get a deployment update for each step
+func (f *fixture) expectDeploymentIDsUpdate(wf *workflow.Workflow) {
+	wf = wf.DeepCopy()
+	wf.Annotations[annDeploymentIDs+"wf-1"] = "1"
+	f.expectUpdateWorkflowsAction(wf)
+}
+
 func (f *fixture) expectWorkflowReset(wf *workflow.Workflow) {
 	wf = wf.DeepCopy()
 
@@ -456,11 +481,52 @@ func (f *fixture) expectGithubCall(call string, res interface{}, args ...interfa
 	f.expectGithubRawCall(call, nil, res, args...)
 }
 
-type setupf func(f *fixture)
+type setupf func(f *fixture, wf *workflow.Workflow)
 
 func createCheckRunRaw(opt github.CreateCheckRunOptions) setupf {
-	return func(f *fixture) {
+	return func(f *fixture, _ *workflow.Workflow) {
 		f.expectGithubCall("create_check_run", nil, opt)
+	}
+}
+
+func createDeploymentStatus(opts *github.DeploymentStatusRequest, wf *workflow.Workflow) setupf {
+	return func(f *fixture, _ *workflow.Workflow) {
+		id := int64(1)
+		f.expectGithubCall("create_deployment_status", &github.DeploymentStatus{ID: &id}, opts)
+	}
+}
+
+func createDeployment(opts *github.DeploymentRequest, wf *workflow.Workflow) setupf {
+	return func(f *fixture, _ *workflow.Workflow) {
+		id := int64(1)
+		f.expectGithubCall("create_deployment", &github.Deployment{ID: &id}, opts)
+	}
+}
+
+func deploymentStatusRequest(_ *workflow.Workflow) *github.DeploymentStatusRequest {
+	return &github.DeploymentStatusRequest{
+		State:        github.String("failure"),
+		LogURL:       github.String("http://example.com/ui/workflows/default/wf/wf-1?nodeId=wf-1&sidePanel=logs%3Awf-1%3Amain&tab=workflow"),
+		Description:  github.String("deploying qubitdigital/qubit-grafana (release) to staging: failure"),
+		Environment:  github.String("staging"),
+		AutoInactive: github.Bool(true),
+	}
+}
+
+func enableDeploys(createsDeployment bool) setupf {
+	return func(f *fixture, wf *workflow.Workflow) {
+		f.config.deployTemplates = regexp.MustCompile("^release$")
+		f.config.productionEnvironments = regexp.MustCompile("^production$")
+		f.config.EnvironmentParameter = "env"
+
+		// TODO(tcm): This would be testing a restart of a deploy (I think)
+		//createCheckRun("queued", "Creating workflow")(f)
+
+		if createsDeployment {
+			f.expectDeploymentIDsUpdate(wf)
+			createDeployment(deploymentRequest(wf), wf)(f, wf)
+		}
+		createDeploymentStatus(deploymentStatusRequest(wf), wf)(f, wf)
 	}
 }
 
@@ -510,6 +576,19 @@ func githubStatus(status, conclusion string, actions ...*github.CheckRunAction) 
 		Text:       "wf[1].release-staging(Failed): Error (exit code 2) \n",
 
 		Annotations: nil,
+	}
+}
+
+func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
+	return &github.DeploymentRequest{
+		Ref:                   github.String("50dbe643f76dcd92c4c935455a46687c903e1b7d"),
+		Task:                  github.String("release"),
+		AutoMerge:             github.Bool(false),
+		Payload:               DeploymentPayload{Passive: true},
+		Environment:           github.String("staging"),
+		Description:           github.String("deploying qubitdigital/qubit-grafana (release) to staging"),
+		TransientEnvironment:  nil,
+		ProductionEnvironment: github.Bool(false),
 	}
 }
 
@@ -614,6 +693,24 @@ func TestCreateWorkflow(t *testing.T) {
 			expectGithubCalls(createCheckRun("queued", "Creating workflow")),
 			githubStatus("queued", ""),
 		},
+		{
+			"deploy_running_external_trigger",
+			workflow.WorkflowRunning,
+			map[string]string{"kube-ci.qutics.com/deployment-ids/wf-1": "1"},
+			false,
+			false,
+			[]setupf{enableDeploys(false)},
+			githubStatus("in_progress", ""),
+		},
+		{
+			"deploy_running_ondemand",
+			workflow.WorkflowRunning,
+			nil,
+			false,
+			false,
+			[]setupf{enableDeploys(true)},
+			githubStatus("in_progress", ""),
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -621,17 +718,17 @@ func TestCreateWorkflow(t *testing.T) {
 			f := newFixture(t)
 			f.config = config
 
-			for _, setup := range tt.setup {
-				setup(f)
-			}
-
 			wf := baseTestWorkflow()
 			wf.Status.Phase = tt.phase
 			for k, v := range tt.extraAnnotations {
 				wf.Annotations[k] = v
 			}
-
 			pod := newPod("default", "wf-1")
+
+			for _, setup := range tt.setup {
+				setup(f, wf)
+			}
+
 			f.k8sObjects = append(f.k8sObjects, pod)
 			f.wfObjects = append(f.wfObjects, wf)
 

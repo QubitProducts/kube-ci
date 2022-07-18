@@ -25,7 +25,7 @@ func (tgi *testGHClientInterface) GetRef(ctx context.Context, ref string) (*gith
 }
 
 func (tgi *testGHClientInterface) UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error) {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented") // TODO: Implement // Not used on this client anyway, we use StatusUpdate
 }
 
 func (tgi *testGHClientInterface) StatusUpdate(ctx context.Context, info *githubInfo, status GithubStatus) {
@@ -46,11 +46,21 @@ func (tgi *testGHClientInterface) CreateCheckRun(ctx context.Context, opts githu
 }
 
 func (tgi *testGHClientInterface) CreateDeployment(ctx context.Context, req *github.DeploymentRequest) (*github.Deployment, error) {
-	panic("not implemented") // TODO: Implement
+	id := int64(1)
+	res := &github.Deployment{
+		ID: &id,
+	}
+	tgi.src.addGithubCall("create_deployment", nil, res, req)
+	return res, nil
 }
 
 func (tgi *testGHClientInterface) CreateDeploymentStatus(ctx context.Context, id int64, req *github.DeploymentStatusRequest) (*github.DeploymentStatus, error) {
-	panic("not implemented") // TODO: Implement
+	res := &github.DeploymentStatus{
+		State:  req.State,
+		LogURL: req.LogURL,
+	}
+	tgi.src.addGithubCall("create_deployment_status", nil, res, req)
+	return res, nil
 }
 
 func (tgi *testGHClientInterface) IsMember(ctx context.Context, user string) (bool, error) {
@@ -99,7 +109,7 @@ func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{
 	if tcs.actions == nil {
 		tcs.actions = map[string][]githubCall{}
 	}
-	tcs.actions[call] = append(tcs.actions[call], githubCall{Args: args})
+	tcs.actions[call] = append(tcs.actions[call], githubCall{Args: args, Err: err, Res: res})
 }
 
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {
