@@ -803,7 +803,6 @@ func (ws *workflowSyncer) Run(stopCh <-chan struct{}) error {
 	defer ws.workqueue.ShutDown()
 
 	if ok := cache.WaitForCacheSync(stopCh, ws.synced); !ok {
-		log.Printf("failed waiting for cache sync")
 		return fmt.Errorf("caches did not sync")
 	}
 

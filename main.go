@@ -55,7 +55,9 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	bs, _ := json.Marshal(resp)
 	buf := bytes.NewBuffer(bs)
 
-	io.Copy(w, buf)
+	if _, err := io.Copy(w, buf); err != nil {
+		panic(err)
+	}
 }
 
 type httpErrorFunc func(w http.ResponseWriter, r *http.Request) (int, string)
@@ -81,7 +83,9 @@ func (f httpErrorFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	argoScheme.AddToScheme(scheme.Scheme)
+	if err := argoScheme.AddToScheme(scheme.Scheme); err != nil {
+		panic(err)
+	}
 
 	kubeconfig := flag.String("kubeconfig", "", "Path to a kubeconfig file")
 	masterURL := flag.String("master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
@@ -322,7 +326,11 @@ func main() {
 
 	go func() {
 		sinf.Start(done)
-		go wfSyncer.Run(done)
+		go func() {
+			if err := wfSyncer.Run(done); err != nil {
+				log.Printf("error running workflow syncer, %v", err)
+			}
+		}()
 
 		<-quit
 
