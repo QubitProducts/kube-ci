@@ -784,22 +784,13 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 	}
 
 	if wf.Status.Phase == workflow.WorkflowSucceeded {
-		doDeployActions := false
-		for _, f := range strings.Split(wf.Annotations[annFeatures], ",") {
-			if f == "deploys" {
-				doDeployActions = true
-			}
-		}
-
-		if doDeployActions {
-			for _, t := range wf.Spec.Templates {
-				if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
-					actions = append(actions, &github.CheckRunAction{
-						Label:       t.Name,
-						Description: fmt.Sprintf("Run the %s template", t.Name),
-						Identifier:  t.Name,
-					})
-				}
+		for _, t := range wf.Spec.Templates {
+			if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
+				actions = append(actions, &github.CheckRunAction{
+					Label:       t.Name,
+					Description: fmt.Sprintf("Run the %s template", t.Name),
+					Identifier:  t.Name,
+				})
 			}
 		}
 	}
