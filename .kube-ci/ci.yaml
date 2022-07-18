@@ -34,7 +34,7 @@ spec:
       env:
       - name: GOPROXY
         value: http://gomod-athens:8080
-      image: golang:1.17
+      image: golang:1.18
       name: ""
       resources: {}
       volumeMounts:
