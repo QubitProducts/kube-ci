@@ -64,7 +64,6 @@ var (
 	annFeatures = "kube-ci.qutics.com/features"
 
 	labelManagedBy = "managedBy"
-	labelWFType    = "wfType"
 	labelOrg       = "org"
 	labelRepo      = "repo"
 	labelBranch    = "branch"
@@ -155,30 +154,41 @@ type workflowSyncer struct {
 }
 
 var sanitize = regexp.MustCompile(`[^-a-z0-9]`)
-var sanitizeToDNS = regexp.MustCompile(`^[-.0-9]*`)
+var sanitizeToDNS = regexp.MustCompile(`^[-0-9.]*`)
 var sanitizeToDNSSuff = regexp.MustCompile(`[-.]+$`)
 
 func escape(str string) string {
-	return sanitize.ReplaceAllString(strings.ToLower(str), "-")
+	str = sanitize.ReplaceAllString(strings.ToLower(str), "-")
+	str = sanitizeToDNS.ReplaceAllString(str, "")
+	str = sanitizeToDNSSuff.ReplaceAllString(str, "")
+	return str
 }
 
-func labelSafe(strs ...string) string {
-	escStrs := make([]string, len(strs))
+func labelSafeLen(maxLen int, strs ...string) string {
+	escStrs := make([]string, 0, len(strs))
+
 	for i := 0; i < len(strs); i++ {
-		escStrs[i] = escape(strs[i])
+		str := escape(strs[i])
+		if len(str) == 0 {
+			continue
+		}
+		escStrs = append(escStrs, str)
 	}
 
 	str := strings.Join(escStrs, ".")
 
-	maxLen := 50
 	if len(str) > maxLen {
 		strOver := maxLen - len(str)
 		str = str[strOver*-1:]
 	}
 
-	str = sanitizeToDNS.ReplaceAllString(str, "")
+	// Need to tidy up the end incase we got unlucky.
 	str = sanitizeToDNSSuff.ReplaceAllString(str, "")
 	return str
+}
+
+func labelSafe(strs ...string) string {
+	return labelSafeLen(50, strs...)
 }
 
 func (ws *workflowSyncer) enqueue(obj interface{}) {

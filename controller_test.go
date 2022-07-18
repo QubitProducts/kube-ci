@@ -33,10 +33,6 @@ func (f *fakeStorageManager) deletePVC(org, repo, branch string, action string) 
 	panic("not implemented")
 }
 
-func TestWFName(t *testing.T) {
-	t.Logf("name: %q", wfName("ci", "qubitdigital", "yak", "mytests/tester"))
-}
-
 type fixture struct {
 	t *testing.T
 
@@ -271,7 +267,6 @@ metadata:
     managedBy: kube-ci
     org: myorg
     repo: myrepo
-    wfType: ci
   name: wf
   namespace: default
   resourceVersion: "891608799"

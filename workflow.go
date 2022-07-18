@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +16,58 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
+
+func wfName(org, repo, entrypoint, ref string) string {
+	// We'll generate some random info so that they are
+	// guaranteed unique
+	c := 10
+	b := make([]byte, c)
+	rand.Read(b)
+
+	h := sha1.New()
+	h.Write(b)
+	// hash the rest of the job name
+	fmt.Fprintf(h, "%s#%s#%s#%s", org, repo, entrypoint, ref)
+	// base64 the hash so we get a few stringt dense random bits
+	str := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+
+	//  we'll grab the first few bytes for a unique name
+	hashStr := "x" + str[0:8]
+
+	// 8 chars used for hash
+	maxLen := 50 - len(hashStr)
+	maxLen -= 1 // for the dot
+
+	maxRepoName := 20
+	if entrypoint != "" {
+		maxRepoName = 15
+	}
+	if len(repo) > maxRepoName {
+		repo = repo[0:maxRepoName]
+	}
+
+	maxLen = maxLen - len(repo)
+	maxLen -= 1 // for the dot
+	parts := []string{repo}
+
+	if entrypoint != "" {
+		if len(entrypoint) > 15 {
+			entrypoint = entrypoint[0:15]
+		}
+		maxLen = maxLen - len(entrypoint)
+		maxLen -= 1 // for the dot
+		parts = append(parts, entrypoint)
+	}
+
+	if len(ref) > maxLen {
+		ref = ref[0:maxLen]
+	}
+	parts = append(parts, ref)
+
+	parts = append(parts, hashStr)
+
+	return labelSafe(parts...)
+}
 
 // GithubStatus is a pseudo-ugly mapping of github checkrun
 // and deployment status into a common struct to make workflow
@@ -77,14 +132,6 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 	}
 }
 
-func wfName(prefix, owner, repo, branch string) string {
-	timeStr := strconv.Itoa(int(time.Now().Unix()))
-	if len(prefix) > 0 {
-		return labelSafe(prefix, owner, repo, branch, timeStr)
-	}
-	return labelSafe(owner, repo, branch, timeStr)
-}
-
 // updateWorkflow, this amends the workflow from the repo with the
 // details we need to track it and update the status on external
 // sources.
@@ -96,7 +143,8 @@ func (ws *workflowSyncer) updateWorkflow(
 	headSHA string,
 	headRefType string,
 	headRefName string,
-	cr *github.CheckRun) {
+	cr *github.CheckRun,
+	entrypoint string) {
 
 	owner := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
@@ -104,9 +152,8 @@ func (ws *workflowSyncer) updateWorkflow(
 	sshURL := repo.GetSSHURL()
 	httpsURL := repo.GetCloneURL()
 
-	wfType := "ci"
 	wf.GenerateName = ""
-	wf.Name = wfName(wfType, owner, repoName, headRefName)
+	wf.Name = wfName(owner, repoName, entrypoint, headRefName)
 
 	if ws.config.Namespace != "" {
 		wf.Namespace = ws.config.Namespace
@@ -220,7 +267,6 @@ func (ws *workflowSyncer) updateWorkflow(
 		wf.Labels = make(map[string]string)
 	}
 	wf.Labels[labelManagedBy] = "kube-ci"
-	wf.Labels[labelWFType] = wfType
 	wf.Labels[labelOrg] = labelSafe(owner)
 	wf.Labels[labelRepo] = labelSafe(repoName)
 	wf.Labels[labelBranch] = labelSafe(headRefName)
@@ -505,6 +551,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		headreftype,
 		headbranch,
 		cr,
+		entrypoint,
 	)
 
 	err = ws.storage.ensurePVC(
