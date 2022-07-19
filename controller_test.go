@@ -663,10 +663,14 @@ func expectGithubCalls(fs ...setupf) []setupf {
 
 func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
 	return &github.DeploymentRequest{
-		Ref:                   github.String("50dbe643f76dcd92c4c935455a46687c903e1b7d"),
-		Task:                  github.String("release"),
-		AutoMerge:             github.Bool(false),
-		Payload:               DeploymentPayload{Passive: true},
+		Ref:       github.String("50dbe643f76dcd92c4c935455a46687c903e1b7d"),
+		Task:      github.String("release"),
+		AutoMerge: github.Bool(false),
+		Payload: DeploymentPayload{
+			KubeCI: KubeCIPayload{
+				Run: false,
+			},
+		},
 		Environment:           github.String("staging"),
 		Description:           github.String("deploying qubitdigital/qubit-grafana (release) to staging"),
 		TransientEnvironment:  nil,

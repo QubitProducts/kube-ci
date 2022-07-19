@@ -97,9 +97,13 @@ func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *g
 }
 
 // DeploymentPayload will do something useful eventually
+type KubeCIPayload struct {
+	Run              bool `json:"run"`               // should we run a workflow
+	CreateDeployment bool `json:"create_deployment"` // if true, don't create a deployment
+}
+
 type DeploymentPayload struct {
-	// Pass
-	Passive bool `json:"passive"`
+	KubeCI KubeCIPayload `json:"kube_ci"`
 }
 
 func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
@@ -114,8 +118,9 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 	payload := DeploymentPayload{}
 	json.Unmarshal(event.Deployment.Payload, &payload)
 
-	if payload.Passive {
-		return http.StatusOK, "OK"
+	if !payload.KubeCI.Run {
+		log.Printf("ignoring deployment event for %s/%s, CI run not requested", org, repo)
+		return http.StatusOK, "Ignored, set kube-ci.run to launch a CI task"
 	}
 
 	// Run a workflow to perform the deploy

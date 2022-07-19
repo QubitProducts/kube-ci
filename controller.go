@@ -383,10 +383,14 @@ func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *work
 			Task:                  github.String(n.TemplateName),
 			ProductionEnvironment: github.Bool(ws.isProdEnvironment(env)),
 			Ref:                   github.String(wf.GetAnnotations()[annCommit]),
-			Payload:               DeploymentPayload{Passive: true}, // this makes sure we don't launch another deploy
-			Description:           github.String(desc),
-			TransientEnvironment:  nil,                // TODO(tcm): support transient environments
-			AutoMerge:             github.Bool(false), // TODO(tcm): support auto-merge
+			Payload: DeploymentPayload{
+				KubeCI: KubeCIPayload{
+					Run: false, // don't need to run a workflow, we already have one
+				},
+			},
+			Description:          github.String(desc),
+			TransientEnvironment: nil,                // TODO(tcm): support transient environments
+			AutoMerge:            github.Bool(false), // TODO(tcm): support auto-merge
 		}
 		dep, err := info.ghClient.CreateDeployment(ctx, opts)
 		if err != nil {
