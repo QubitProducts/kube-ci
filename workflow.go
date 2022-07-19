@@ -415,6 +415,10 @@ func checkRunError(ctx context.Context, info *githubInfo, err error, title strin
 }
 
 func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workflow, ev *github.DeploymentEvent) error {
+	if wf == nil {
+		return nil
+	}
+
 	if ev != nil {
 		entrypoint = ev.Deployment.GetTask()
 		dregex := ws.config.deployTemplates
@@ -470,14 +474,14 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, sha, refType, ref, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, de *github.DeploymentEvent) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
-	wf, err := getWorkflow(
+	wf, wfErr := getWorkflow(
 		ctx,
 		ghClient,
 		sha,
 		ws.config.CIFilePath,
 	)
 
-	if os.IsNotExist(err) {
+	if os.IsNotExist(wfErr) {
 		log.Printf("no %s in %s/%s (%s)", ws.config.CIFilePath, org, name, sha)
 		return nil
 	}
@@ -488,16 +492,26 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	}
 
 	crName := defaultCheckRunName
-	if entrypoint != "" {
-		wf.Spec.Entrypoint = entrypoint
-		crName = defaultCheckRunName
-		if de != nil {
-			crName += " (deployment)"
-		}
+	epErr := ws.setupEntrypoint(entrypoint, wf, de)
+	if epErr != nil {
+		log.Printf("not running %s/%s (%s), %v",
+			org,
+			name,
+			sha,
+			epErr,
+		)
+		// can't return here, we need to report the error
+	}
+
+	if epErr != nil {
+		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
+	}
+	if de != nil {
+		crName += " (deployment)"
 	}
 
 	title := github.String("Workflow Setup")
-	cr, crerr := ghClient.CreateCheckRun(ctx,
+	cr, crErr := ghClient.CreateCheckRun(ctx,
 		github.CreateCheckRunOptions{
 			Name:    crName,
 			HeadSHA: sha,
@@ -508,9 +522,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 			},
 		},
 	)
-	if crerr != nil {
-		log.Printf("Unable to create check run, %v", err)
-		return fmt.Errorf("creating check run failed, %w", err)
+	if crErr != nil {
+		log.Printf("Unable to create check run, %v", crErr)
+		return fmt.Errorf("creating check run failed, %w", crErr)
 	}
 
 	info := &githubInfo{
@@ -534,23 +548,17 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		},
 	)
 
-	if err != nil {
-		// Status: error to checkrun info failed
-		msg := fmt.Errorf("unable to parse workflow, %v", err)
+	if wfErr != nil {
+		msg := fmt.Errorf("unable to parse workflow, %v", wfErr)
 		checkRunError(ctx, info, msg, *title, updater)
-		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, err)
+		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, wfErr)
 		return nil
 	}
 
-	if err := ws.setupEntrypoint(entrypoint, wf, de); err != nil {
-		log.Printf("not running %s/%s (%s), %v",
-			org,
-			name,
-			sha,
-			err,
-		)
-		checkRunError(ctx, info, err, *title, updater)
-
+	if epErr != nil {
+		msg := fmt.Errorf("error finding workflow endpoint, %v", epErr)
+		checkRunError(ctx, info, msg, *title, updater)
+		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, epErr)
 		return nil
 	}
 
@@ -580,7 +588,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		entrypoint,
 	)
 
-	err = ws.storage.ensurePVC(
+	err := ws.storage.ensurePVC(
 		wf,
 		org,
 		name,
@@ -589,16 +597,6 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	)
 	if err != nil {
 		// Status: error to checkrun info failed - pvc create error
-		updater.StatusUpdate(
-			ctx,
-			info,
-			GithubStatus{
-				Title:      *title,
-				Summary:    fmt.Sprintf("creation of cache volume failed, %v", err),
-				Status:     "completed",
-				Conclusion: "failure",
-			},
-		)
 		checkRunError(ctx, info, fmt.Errorf("creation of cache volume failed, %v", err), *title, updater)
 		return err
 	}
