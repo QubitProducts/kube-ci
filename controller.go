@@ -376,16 +376,45 @@ func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *work
 	desc := fmt.Sprintf("deploying %s/%s (%s) to %s", info.orgName, info.repoName, n.TemplateName, env)
 	deployID := info.deploymentIDs[n.ID]
 
+	params := wf.Spec.Arguments.Parameters
+	refType := ""
+	refPrefix := ""
+	refName := ""
+	refSHA := ""
+	for _, p := range params {
+		switch p.Name {
+		case "refType":
+			refType = p.GetValue()
+			switch refType {
+			case "branch":
+				refPrefix = "heads"
+			case "tag":
+				refPrefix = "tags"
+			}
+		case "refName":
+			refName = p.GetValue()
+		case "revision":
+			refSHA = p.GetValue()
+		}
+	}
+	if refPrefix == "" || refName == "" {
+		return nil, fmt.Errorf("can't create deployment, could not determine ref type or name from workflow")
+	}
+	ref := fmt.Sprintf("%s/%s", refPrefix, refName)
+
 	if deployID == 0 {
 		// we need to create a new deployment and record it here
 		opts := &github.DeploymentRequest{
 			Environment:           github.String(env),
 			Task:                  github.String(n.TemplateName),
 			ProductionEnvironment: github.Bool(ws.isProdEnvironment(env)),
-			Ref:                   github.String(wf.GetAnnotations()[annCommit]),
+			Ref:                   github.String(ref),
 			Payload: DeploymentPayload{
 				KubeCI: KubeCIPayload{
-					Run: false, // don't need to run a workflow, we already have one
+					Run:     false, // don't need to run a workflow, we already have one
+					RefType: refType,
+					RefName: refName,
+					SHA:     refSHA,
 				},
 			},
 			Description:          github.String(desc),
@@ -445,7 +474,10 @@ func (ws *workflowSyncer) syncDeployments(ctx context.Context, wf *workflow.Work
 
 		deployID := info.deploymentIDs[n.ID]
 		if deployID == 0 {
-			ws.createOnDemandDeployment(ctx, wf, info, n, env)
+			if _, err := ws.createOnDemandDeployment(ctx, wf, info, n, env); err != nil {
+				// TODO(tcm): need to report to the user that the deploy failed as we
+				// couldn't work out which env was being deployed to
+			}
 		}
 
 		desc := fmt.Sprintf("deploying %s/%s (%s) to %s: %s", info.orgName, info.repoName, n.TemplateName, env, state)

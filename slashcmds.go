@@ -100,6 +100,7 @@ func (s *slashHandler) slashRun(ctx context.Context, ghClient ghClientInterface,
 		"",
 		[]*github.PullRequest{pr},
 		ghClient,
+		nil,
 	)
 }
 

@@ -663,12 +663,15 @@ func expectGithubCalls(fs ...setupf) []setupf {
 
 func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
 	return &github.DeploymentRequest{
-		Ref:       github.String("50dbe643f76dcd92c4c935455a46687c903e1b7d"),
+		Ref:       github.String("heads/testdeploy"),
 		Task:      github.String("release"),
 		AutoMerge: github.Bool(false),
 		Payload: DeploymentPayload{
 			KubeCI: KubeCIPayload{
-				Run: false,
+				Run:     false,
+				SHA:     "50dbe643f76dcd92c4c935455a46687c903e1b7d",
+				RefType: "branch",
+				RefName: "testdeploy",
 			},
 		},
 		Environment:           github.String("staging"),

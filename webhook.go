@@ -12,7 +12,7 @@ import (
 )
 
 type workflowRunner interface {
-	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater) error
+	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, params map[string]string) error
 }
 
 type pvcManager interface {
@@ -100,6 +100,12 @@ func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *g
 type KubeCIPayload struct {
 	Run              bool `json:"run"`               // should we run a workflow
 	CreateDeployment bool `json:"create_deployment"` // if true, don't create a deployment
+
+	// RefType and RefName avoid going to the github API if we already know what type of
+	// ref the user requested
+	RefType string `json:"ref_type"`
+	RefName string `json:"ref_name"`
+	SHA     string `json:"sha"`
 }
 
 type DeploymentPayload struct {
@@ -116,17 +122,19 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 	}
 
 	payload := DeploymentPayload{}
-	json.Unmarshal(event.Deployment.Payload, &payload)
+	// don't care about an error here.
+	_ = json.Unmarshal(event.Deployment.Payload, &payload)
 
 	if !payload.KubeCI.Run {
 		log.Printf("ignoring deployment event for %s/%s, CI run not requested", org, repo)
 		return http.StatusOK, "Ignored, set kube-ci.run to launch a CI task"
 	}
+	envParam := "env"
 
 	// Run a workflow to perform the deploy
 	// TODO, we need to pass in the extra environment
 	// parameter, and the deployment ID
-	h.runner.runWorkflow(ctx,
+	err = h.runner.runWorkflow(ctx,
 		ghClient,
 		event.GetRepo(),
 		event.GetDeployment().GetSHA(),
@@ -135,6 +143,9 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		event.GetDeployment().GetTask(),
 		nil,
 		ghClient,
+		map[string]string{
+			envParam: event.GetDeployment().GetEnvironment(),
+		},
 	)
 
 	return http.StatusOK, ""
@@ -174,6 +185,7 @@ func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 		"",
 		nil,
 		ghClient,
+		nil,
 	)
 
 	if err != nil {
@@ -201,6 +213,7 @@ func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 		"",
 		event.CheckSuite.PullRequests,
 		ghClient,
+		nil,
 	)
 
 	if err != nil {
@@ -258,6 +271,7 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 		event.RequestedAction.Identifier,
 		event.GetCheckRun().GetCheckSuite().PullRequests,
 		ghClient,
+		nil,
 	)
 
 	if err != nil {
@@ -283,7 +297,6 @@ func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) 
 			return http.StatusOK, "ignoring, wrong appID"
 		}
 		// TODO: HeadBranch is not set for all events, need to understand why
-		// log.Printf("%s event (%s) for %s(%s), by %s", eventType, *event.Action, *event.Repo.FullName, *event.CheckSuite.HeadBranch, event.Sender.GetLogin())
 		switch *event.Action {
 		case "requested", "rerequested":
 			return h.webhookCheckSuite(ctx, event)
