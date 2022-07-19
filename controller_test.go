@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,11 @@ func (f *fixture) runExpectError(obj interface{}, t *testing.T) {
 
 func compareActions(text string, want, got []k8stesting.Action, t *testing.T) {
 	actions := filterInformerActions(got)
+	if len(want) > len(actions) {
+		diff := cmp.Diff(want[len(actions):], nil)
+		t.Errorf("missing %d %s: %+v", len(want)-len(actions), text, diff)
+	}
+
 	for i, action := range actions {
 		if len(want) < i+1 {
 			diff := cmp.Diff(nil, actions[i:])
@@ -118,11 +124,6 @@ func compareActions(text string, want, got []k8stesting.Action, t *testing.T) {
 
 		expectedAction := want[i]
 		checkAction(expectedAction, action, t)
-	}
-
-	if len(want) > len(actions) {
-		diff := cmp.Diff(want[len(got):], nil)
-		t.Errorf("missing %d %s: %+v", len(want)-len(got), text, diff)
 	}
 }
 
@@ -197,7 +198,7 @@ func checkAction(expected, actual k8stesting.Action, t *testing.T) {
 		object := act.GetObject()
 
 		if diff := cmp.Diff(expObject, object); diff != "" {
-			t.Fatalf("\n(-want +got):\n%s", diff)
+			t.Errorf("action: %s\n(-want +got):\n%s", verb, diff)
 		}
 	case "update":
 		e, _ := expected.(k8stesting.UpdateAction)
@@ -206,7 +207,7 @@ func checkAction(expected, actual k8stesting.Action, t *testing.T) {
 		object := act.GetObject()
 
 		if diff := cmp.Diff(expObject, object); diff != "" {
-			t.Fatalf("\n(-want +got):\n%s", diff)
+			t.Errorf("action: %s\n(-want +got):\n%s", verb, diff)
 		}
 	}
 }
@@ -413,6 +414,51 @@ func newPod(namespace, name string) *corev1.Pod {
 	}
 }
 
+// volumeAction creates a CheckRunAction which matches the one
+// kube-ci sets up for volume deletion.
+func volumeAction(scope string) *github.CheckRunAction {
+	if scope == "" {
+		return nil
+	}
+	task := "clearCache"
+	if scope == "branch" {
+		task = "clearCacheBranch"
+	}
+
+	return &github.CheckRunAction{
+		Label:       "Clear Cache",
+		Description: "delete the cache volume for this build",
+		Identifier:  task,
+	}
+}
+
+// userAction creates a CheckRunAction as per the ones
+// kube-ci creates for user instigated actions
+func userAction(task string) *github.CheckRunAction {
+	return &github.CheckRunAction{
+		Label:       task,
+		Description: fmt.Sprintf("Run the %s template", task),
+		Identifier:  task,
+	}
+}
+
+// githubStatus creates a GithubStatus that matches the output for the above workflow
+// this should really pull more info from the workflow
+func githubStatus(status, conclusion string, actions ...*github.CheckRunAction) GithubStatus {
+	return GithubStatus{
+		Status:     status,
+		Conclusion: conclusion,
+		Actions:    actions,
+		Title:      "Workflow Run (default/wf))",
+
+		DetailsURL: "http://example.com/ui/workflows/default/wf",
+		Summary:    "child 'wf-1' failed",
+		Text:       "wf[1].release-staging(Failed): Error (exit code 2) \n",
+
+		Annotations: nil,
+	}
+}
+
 //lint:ignore U1000 we will need this at some point
 func (f *fixture) expectWorkflowUpdate(wf *workflow.Workflow) {
 	f.wfActions = append(f.wfActions,
@@ -439,7 +485,7 @@ func (f *fixture) expectPodGetLogs(namespace, name string) {
 	f.k8sActions = append(f.k8sActions, action)
 }
 
-func (f *fixture) expectAnnotationsUpdate(wf *workflow.Workflow) {
+func (f *fixture) expectCheckRunAnnotationsUpdate(wf *workflow.Workflow) *workflow.Workflow {
 	wf = wf.DeepCopy()
 	wf.Annotations[annAnnotationsPublished] = "true"
 	f.expectUpdateWorkflowsAction(wf)
@@ -449,25 +495,50 @@ func (f *fixture) expectAnnotationsUpdate(wf *workflow.Workflow) {
 		}
 		f.expectPodGetLogs(wf.Namespace, n.ID)
 	}
+
+	return wf
 }
 
 // When we are creating deployments on-demand for running steps,
 // we expect to get a deployment update for each step
-func (f *fixture) expectDeploymentIDsUpdate(wf *workflow.Workflow) {
+func (f *fixture) expectDeploymentIDsUpdate(wf *workflow.Workflow) *workflow.Workflow {
 	wf = wf.DeepCopy()
 	wf.Annotations[annDeploymentIDs+"wf-1"] = "1"
+
 	f.expectUpdateWorkflowsAction(wf)
+
+	return wf
 }
 
-func (f *fixture) expectWorkflowReset(wf *workflow.Workflow) {
+func (f *fixture) expectWorkflowReset(wf *workflow.Workflow) *workflow.Workflow {
 	wf = wf.DeepCopy()
 
 	wf.Annotations[annAnnotationsPublished] = "false"
 	// it would be nice if we could get the ID in from the
 	// github fake, but at least we know it starts as not "1"
 	// so much have been reset.
-	wf.Annotations[annCheckRunID] = "1"
+	anns := wf.Annotations
+	anns[annCheckRunID] = "1"
+
+	for k := range anns {
+		if strings.HasPrefix(k, "kube-ci.qutics.com/deployment-ids/") {
+			delete(anns, k)
+		}
+	}
+	wf.Annotations = anns
+
 	f.expectUpdateWorkflowsAction(wf)
+
+	return wf
+}
+
+func (f *fixture) expectDeploymentIDsUpdateAfterWorkflowReset(wf *workflow.Workflow) *workflow.Workflow {
+	wf = wf.DeepCopy()
+
+	wf = f.expectWorkflowReset(wf)
+	wf = f.expectDeploymentIDsUpdate(wf)
+
+	return wf
 }
 
 func (f *fixture) expectGithubRawCall(call string, err error, res interface{}, args ...interface{}) {
@@ -521,30 +592,34 @@ func deploymentStatusRequest(_ *workflow.Workflow) *github.DeploymentStatusReque
 		AutoInactive: github.Bool(true),
 	}
 }
+
 func enableUserActions(regex string) setupf {
 	return func(f *fixture, _ *workflow.Workflow) {
 		f.config.actionTemplates = regexp.MustCompile(regex)
 	}
 }
 
-func enableDeploys(createsDeployment bool) setupf {
-	return func(f *fixture, wf *workflow.Workflow) {
+func enableDeploys() setupf {
+	return func(f *fixture, _ *workflow.Workflow) {
 		f.config.deployTemplates = regexp.MustCompile("^release$")
 		f.config.productionEnvironments = regexp.MustCompile("^production$")
 		f.config.EnvironmentParameter = "env"
+	}
+}
 
-		// TODO(tcm): This would be testing a restart of a deploy (I think)
-		//createCheckRun("queued", "Creating workflow")(f)
+func createsDeployment() setupf {
+	return func(f *fixture, wf *workflow.Workflow) {
+		createDeployment(deploymentRequest(wf), wf)(f, wf)
+	}
+}
 
-		if createsDeployment {
-			f.expectDeploymentIDsUpdate(wf)
-			createDeployment(deploymentRequest(wf), wf)(f, wf)
-		}
+func createsDeploymentStatus() setupf {
+	return func(f *fixture, wf *workflow.Workflow) {
 		createDeploymentStatus(deploymentStatusRequest(wf), wf)(f, wf)
 	}
 }
 
-func createCheckRun(status, summary string) setupf {
+func createsCheckRun(status, summary string) setupf {
 	return createCheckRunRaw(
 		github.CreateCheckRunOptions{
 			Name:    "Argo Workflow",
@@ -558,47 +633,32 @@ func createCheckRun(status, summary string) setupf {
 	)
 }
 
+func updatesCheckRunAnnotations() setupf {
+	return func(f *fixture, wf *workflow.Workflow) {
+		f.expectCheckRunAnnotationsUpdate(wf)
+	}
+}
+
+func resetsWorkflow() setupf {
+	return func(f *fixture, wf *workflow.Workflow) {
+		f.expectWorkflowReset(wf)
+	}
+}
+
+func updatesDeploymentID() setupf {
+	return func(f *fixture, wf *workflow.Workflow) {
+		f.expectDeploymentIDsUpdate(wf)
+	}
+}
+
+func resetsWorkflowAndDeploymentID() setupf {
+	return func(f *fixture, wf *workflow.Workflow) {
+		f.expectDeploymentIDsUpdateAfterWorkflowReset(wf)
+	}
+}
+
 func expectGithubCalls(fs ...setupf) []setupf {
 	return fs
-}
-
-func volumeAction(scope string) *github.CheckRunAction {
-	if scope == "" {
-		return nil
-	}
-	task := "clearCache"
-	if scope == "branch" {
-		task = "clearCacheBranch"
-	}
-
-	return &github.CheckRunAction{
-		Label:       "Clear Cache",
-		Description: "delete the cache volume for this build",
-		Identifier:  task,
-	}
-}
-
-func userAction(task string) *github.CheckRunAction {
-	return &github.CheckRunAction{
-		Label:       task,
-		Description: fmt.Sprintf("Run the %s template", task),
-		Identifier:  task,
-	}
-}
-
-func githubStatus(status, conclusion string, actions ...*github.CheckRunAction) GithubStatus {
-	return GithubStatus{
-		Status:     status,
-		Conclusion: conclusion,
-		Actions:    actions,
-		Title:      "Workflow Run (default/wf))",
-
-		DetailsURL: "http://example.com/ui/workflows/default/wf",
-		Summary:    "child 'wf-1' failed",
-		Text:       "wf[1].release-staging(Failed): Error (exit code 2) \n",
-
-		Annotations: nil,
-	}
 }
 
 func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
@@ -621,22 +681,22 @@ func TestCreateWorkflow(t *testing.T) {
 	config.productionEnvironments = regexp.MustCompile("^$")
 
 	alreadyPublished := map[string]string{annAnnotationsPublished: "true"}
+	alreadyPublishedWithDeploy := map[string]string{
+		annAnnotationsPublished:                  "true",
+		"kube-ci.qutics.com/deployment-ids/wf-1": "4",
+	}
 
 	var tests = []struct {
-		name                string
-		phase               workflow.WorkflowPhase
-		extraAnnotations    map[string]string
-		expectLogs          bool
-		expectWorkflowReset bool
-		setup               []setupf
-		expectStatus        GithubStatus
+		name             string
+		phase            workflow.WorkflowPhase
+		extraAnnotations map[string]string
+		setup            []setupf
+		expectStatus     GithubStatus
 	}{
 		{
 			"normal_pending",
 			workflow.WorkflowPending,
 			nil,
-			false,
-			false,
 			nil,
 			githubStatus("queued", ""),
 		},
@@ -644,8 +704,6 @@ func TestCreateWorkflow(t *testing.T) {
 			"normal_running",
 			workflow.WorkflowRunning,
 			nil,
-			false,
-			false,
 			nil,
 			githubStatus("in_progress", ""),
 		},
@@ -653,45 +711,46 @@ func TestCreateWorkflow(t *testing.T) {
 			"normal_succeeded",
 			workflow.WorkflowSucceeded,
 			nil,
-			true,
-			false,
-			nil,
+			[]setupf{
+				updatesCheckRunAnnotations(),
+			},
 			githubStatus("completed", "success"),
 		},
 		{
 			"normal_succeeded_with_branch_volume",
 			workflow.WorkflowSucceeded,
 			map[string]string{"kube-ci.qutics.com/cacheScope": "branch"},
-			true,
-			false,
-			nil,
+			[]setupf{
+				updatesCheckRunAnnotations(),
+			},
 			githubStatus("completed", "success", volumeAction("branch")),
 		},
 		{
 			"normal_succeeded_with_project_volume",
 			workflow.WorkflowSucceeded,
 			map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
-			true,
-			false,
-			nil,
+			[]setupf{
+				updatesCheckRunAnnotations(),
+			},
 			githubStatus("completed", "success", volumeAction("project")),
 		},
 		{
 			"normal_succeeded_with_action_buttons",
 			workflow.WorkflowSucceeded,
 			map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
-			true,
-			false,
-			[]setupf{enableUserActions("^release-staging$")},
+			[]setupf{
+				updatesCheckRunAnnotations(),
+				enableUserActions("^release-staging$"),
+			},
 			githubStatus("completed", "success", volumeAction("project"), userAction("release-staging")),
 		},
 		{
 			"normal_failure",
 			workflow.WorkflowFailed,
 			nil,
-			true,
-			false,
-			nil,
+			[]setupf{
+				updatesCheckRunAnnotations(),
+			},
 			githubStatus("completed", "failure"),
 		},
 		{
@@ -701,8 +760,6 @@ func TestCreateWorkflow(t *testing.T) {
 			"normal_error",
 			workflow.WorkflowError,
 			nil,
-			false,
-			false,
 			nil,
 			githubStatus("completed", "failure"),
 		},
@@ -710,36 +767,72 @@ func TestCreateWorkflow(t *testing.T) {
 			"restart_pending",
 			workflow.WorkflowPending,
 			alreadyPublished,
-			false,
-			true,
-			expectGithubCalls(createCheckRun("queued", "Creating workflow")),
+			expectGithubCalls(
+				createsCheckRun("queued", "Creating workflow"),
+				resetsWorkflow(),
+			),
 			githubStatus("queued", ""),
 		},
 		{
 			"restart_running",
 			workflow.WorkflowRunning,
 			alreadyPublished,
-			false,
-			true,
-			expectGithubCalls(createCheckRun("queued", "Creating workflow")),
-			githubStatus("queued", ""),
+			expectGithubCalls(
+				createsCheckRun("queued", "Creating workflow"),
+				resetsWorkflow(),
+			),
+			githubStatus("in_progress", ""),
 		},
 		{
 			"deploy_running_external_trigger",
 			workflow.WorkflowRunning,
 			map[string]string{"kube-ci.qutics.com/deployment-ids/wf-1": "1"},
-			false,
-			false,
-			[]setupf{enableDeploys(false)},
+			[]setupf{
+				enableDeploys(),
+				createsDeploymentStatus(),
+			},
 			githubStatus("in_progress", ""),
 		},
 		{
 			"deploy_running_ondemand",
 			workflow.WorkflowRunning,
 			nil,
-			false,
-			false,
-			[]setupf{enableDeploys(true)},
+			[]setupf{
+				enableDeploys(),
+				createsDeployment(),
+				createsDeploymentStatus(),
+				updatesDeploymentID(),
+			},
+			githubStatus("in_progress", ""),
+		},
+		{
+			// A workflow that was triggered by an external deployment
+			// creation has been resubmitted
+			"deploy_restart_external_trigger",
+			workflow.WorkflowRunning,
+			alreadyPublishedWithDeploy,
+			[]setupf{
+				enableDeploys(),
+				createsCheckRun("queued", "Creating workflow"),
+				createsDeployment(),
+				createsDeploymentStatus(),
+				resetsWorkflowAndDeploymentID(),
+			},
+			githubStatus("in_progress", ""),
+		},
+		{
+			// A normal workflow that creates deployments on-demand has
+			// has been resubmitted
+			"deploy_restart_ondemand",
+			workflow.WorkflowRunning,
+			alreadyPublishedWithDeploy,
+			[]setupf{
+				enableDeploys(),
+				createsCheckRun("queued", "Creating workflow"),
+				createsDeployment(),
+				createsDeploymentStatus(),
+				resetsWorkflowAndDeploymentID(),
+			},
 			githubStatus("in_progress", ""),
 		},
 	}
@@ -762,14 +855,6 @@ func TestCreateWorkflow(t *testing.T) {
 
 			f.k8sObjects = append(f.k8sObjects, pod)
 			f.wfObjects = append(f.wfObjects, wf)
-
-			if tt.expectLogs {
-				f.expectAnnotationsUpdate(wf)
-			}
-
-			if tt.expectWorkflowReset {
-				f.expectWorkflowReset(wf)
-			}
 
 			f.githubStatus = tt.expectStatus
 

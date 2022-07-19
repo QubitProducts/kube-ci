@@ -151,12 +151,11 @@ func (tcs *testGHClientSrc) getCheckRunStatus() GithubStatus {
 			}
 
 			res.Annotations = append(res.Annotations, crs.Annotations...)
-
-			tcs.t.Logf("crs: %#v", crs)
 		}
 		// TODO: We'll just pick  random installID for now,
 		// tests should be enhanced to cater for different
 		// installs.
+		tcs.t.Logf("CheckRunStatus: %#v", res)
 		return res
 	}
 	return res
