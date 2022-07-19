@@ -521,7 +521,7 @@ func (f *fixture) expectWorkflowReset(wf *workflow.Workflow) *workflow.Workflow 
 	anns[annCheckRunID] = "1"
 
 	for k := range anns {
-		if strings.HasPrefix(k, "kube-ci.qutics.com/deployment-ids/") {
+		if strings.HasPrefix(k, "kube-ci.qutics.com/deployment-id-") {
 			delete(anns, k)
 		}
 	}
@@ -691,8 +691,8 @@ func TestCreateWorkflow(t *testing.T) {
 
 	alreadyPublished := map[string]string{annAnnotationsPublished: "true"}
 	alreadyPublishedWithDeploy := map[string]string{
-		annAnnotationsPublished:                  "true",
-		"kube-ci.qutics.com/deployment-ids/wf-1": "4",
+		annAnnotationsPublished:                 "true",
+		"kube-ci.qutics.com/deployment-id-wf-1": "4",
 	}
 
 	var tests = []struct {
@@ -795,7 +795,7 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"deploy_running_external_trigger",
 			workflow.WorkflowRunning,
-			map[string]string{"kube-ci.qutics.com/deployment-ids/wf-1": "1"},
+			map[string]string{"kube-ci.qutics.com/deployment-id-wf-1": "1"},
 			[]setupf{
 				enableDeploys(),
 				createsDeploymentStatus(),
