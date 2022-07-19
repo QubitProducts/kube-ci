@@ -140,9 +140,9 @@ func (ws *workflowSyncer) decorateWorkflow(
 	instID int,
 	repo *github.Repository,
 	prs []*github.PullRequest,
-	headSHA string,
-	headRefType string,
-	headRefName string,
+	sha string,
+	refType string,
+	ref string,
 	cr *github.CheckRun,
 	entrypoint string) {
 
@@ -153,7 +153,7 @@ func (ws *workflowSyncer) decorateWorkflow(
 	httpsURL := repo.GetCloneURL()
 
 	wf.GenerateName = ""
-	wf.Name = wfName(owner, repoName, entrypoint, headRefName)
+	wf.Name = wfName(owner, repoName, entrypoint, ref)
 
 	if ws.config.Namespace != "" {
 		wf.Namespace = ws.config.Namespace
@@ -220,19 +220,19 @@ func (ws *workflowSyncer) decorateWorkflow(
 		},
 		{
 			Name:  "revision",
-			Value: workflow.AnyStringPtr(headSHA),
+			Value: workflow.AnyStringPtr(sha),
 		},
 		{
 			Name:  "refType",
-			Value: workflow.AnyStringPtr(headRefType),
+			Value: workflow.AnyStringPtr(refType),
 		},
 		{
 			Name:  "refName",
-			Value: workflow.AnyStringPtr(headRefName),
+			Value: workflow.AnyStringPtr(ref),
 		},
 		{
-			Name:  headRefType,
-			Value: workflow.AnyStringPtr(headRefName),
+			Name:  refType,
+			Value: workflow.AnyStringPtr(ref),
 		},
 		{
 			Name:  "repoDefaultBranch",
@@ -269,14 +269,14 @@ func (ws *workflowSyncer) decorateWorkflow(
 	wf.Labels[labelManagedBy] = "kube-ci"
 	wf.Labels[labelOrg] = labelSafe(owner)
 	wf.Labels[labelRepo] = labelSafe(repoName)
-	wf.Labels[labelBranch] = labelSafe(headRefName)
+	wf.Labels[labelBranch] = labelSafe(ref)
 
 	if wf.Annotations == nil {
 		wf.Annotations = make(map[string]string)
 	}
 
-	wf.Annotations[annCommit] = headSHA
-	wf.Annotations[annBranch] = headRefName
+	wf.Annotations[annCommit] = sha
+	wf.Annotations[annBranch] = ref
 	wf.Annotations[annRepo] = repoName
 	wf.Annotations[annOrg] = owner
 
@@ -397,33 +397,93 @@ type wfGHClient interface {
 	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, params map[string]string) error {
+func checkRunError(ctx context.Context, info *githubInfo, err error, title string, upd StatusUpdater) {
+	if err == nil {
+		return
+	}
+
+	upd.StatusUpdate(
+		ctx,
+		info,
+		GithubStatus{
+			Title:      title,
+			Summary:    err.Error(),
+			Status:     "completed",
+			Conclusion: "failure",
+		},
+	)
+}
+
+func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workflow, ev *github.DeploymentEvent) error {
+	if ev != nil {
+		entrypoint = ev.Deployment.GetTask()
+		dregex := ws.config.deployTemplates
+		if dregex == nil {
+			return fmt.Errorf("deployment templates are not configured")
+		}
+		if dregex != nil && !dregex.MatchString(entrypoint) {
+			return fmt.Errorf("requested deployment action %s does not match configured deployment templates, %s", entrypoint, dregex.String())
+		}
+	}
+
+	var entrypointTemplateIndex int
+	var entrypointTemplate workflow.Template
+	if entrypoint != "" {
+		found := false
+		for i, t := range wf.Spec.Templates {
+			if t.Name == entrypoint {
+				entrypointTemplateIndex = i
+				entrypointTemplate = t
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("requested entrypoint %q found in workflow templates", entrypoint)
+		}
+		wf.Spec.Entrypoint = entrypoint
+	}
+
+	if ev == nil {
+		return nil
+	}
+
+	// if this is for a deployment we need to update the environment parameter
+	envParam := ws.config.EnvironmentParameter
+	env := ev.Deployment.GetEnvironment()
+	found := false
+
+	for i, p := range entrypointTemplate.Inputs.Parameters {
+		if p.Name == envParam {
+			found = true
+			p.Value = workflow.AnyStringPtr(env)
+			wf.Spec.Templates[entrypointTemplateIndex].Inputs.Parameters[i] = p
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("did not find deployment environment parameter %s in template %s", envParam, entrypointTemplate.Name)
+	}
+
+	return nil
+}
+
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, sha, refType, ref, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, de *github.DeploymentEvent) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
 	wf, err := getWorkflow(
 		ctx,
 		ghClient,
-		headsha,
+		sha,
 		ws.config.CIFilePath,
 	)
 
 	if os.IsNotExist(err) {
-		log.Printf("no %s in %s/%s (%s)",
-			ws.config.CIFilePath,
-			org,
-			name,
-			headsha,
-		)
+		log.Printf("no %s in %s/%s (%s)", ws.config.CIFilePath, org, name, sha)
 		return nil
 	}
 
-	if wf != nil && !runBranchOrTag(headreftype, wf) {
-		log.Printf("not running %s/%s (%s) for reftype %s",
-			org,
-			name,
-			headsha,
-			headreftype,
-		)
+	if wf != nil && !runBranchOrTag(refType, wf) {
+		log.Printf("not running %s/%s (%s) for reftype %s", org, name, sha, refType)
 		return nil
 	}
 
@@ -431,13 +491,16 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	if entrypoint != "" {
 		wf.Spec.Entrypoint = entrypoint
 		crName = defaultCheckRunName
+		if de != nil {
+			crName += " (deployment)"
+		}
 	}
 
 	title := github.String("Workflow Setup")
 	cr, crerr := ghClient.CreateCheckRun(ctx,
 		github.CreateCheckRunOptions{
 			Name:    crName,
-			HeadSHA: headsha,
+			HeadSHA: sha,
 			Status:  defaultCheckRunStatus,
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Workflow Setup"),
@@ -473,64 +536,27 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 
 	if err != nil {
 		// Status: error to checkrun info failed
-		msg := fmt.Sprintf("unable to parse workflow, %v", err)
-		updater.StatusUpdate(
-			ctx,
-			info,
-			GithubStatus{
-				Title:      *title,
-				Summary:    msg,
-				Status:     "completed",
-				Conclusion: "failure",
-			},
-		)
-		log.Printf("unable to parse workflow for %s (%s), %v", repo, headbranch, err)
+		msg := fmt.Errorf("unable to parse workflow, %v", err)
+		checkRunError(ctx, info, msg, *title, updater)
+		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, err)
 		return nil
 	}
 
-	if entrypoint != "" {
-		found := false
-		for _, t := range wf.Spec.Templates {
-			if t.Name == entrypoint {
-				found = true
-			}
-		}
-		if !found {
-			log.Printf("not running %s/%s (%s), no template for entrypoint %s found",
-				org,
-				name,
-				headsha,
-				entrypoint,
-			)
-			err = fmt.Errorf("no entrypoint %q found in workflow templates", entrypoint)
-			// Status: error to checkrun info failed
-			updater.StatusUpdate(
-				ctx,
-				info,
-				GithubStatus{
-					Title:      *title,
-					Summary:    err.Error(),
-					Status:     "completed",
-					Conclusion: "failure",
-				},
-			)
-			return err
-		}
-		wf.Spec.Entrypoint = entrypoint
+	if err := ws.setupEntrypoint(entrypoint, wf, de); err != nil {
+		log.Printf("not running %s/%s (%s), %v",
+			org,
+			name,
+			sha,
+			err,
+		)
+		checkRunError(ctx, info, err, *title, updater)
+
+		return nil
 	}
 
-	if err := ws.policy(repo, headbranch, *title, prs); err != nil {
-		// Status: error to checkrun info failed - policy error
-		updater.StatusUpdate(
-			ctx,
-			info,
-			GithubStatus{
-				Title:      *title,
-				Summary:    err.message,
-				Status:     "completed",
-				Conclusion: "failure",
-			},
-		)
+	if err := ws.policy(repo, ref, *title, prs); err != nil {
+		// Status: error to checkrunrun info failed - policy error
+		checkRunError(ctx, info, fmt.Errorf(err.message), *title, updater)
 		log.Printf(err.log)
 		return nil
 	}
@@ -538,7 +564,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	ws.cancelRunningWorkflows(
 		org,
 		name,
-		headbranch,
+		ref,
 	)
 
 	wf = wf.DeepCopy()
@@ -547,9 +573,9 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		ghClient.GetInstallID(),
 		repo,
 		prs,
-		headsha,
-		headreftype,
-		headbranch,
+		sha,
+		refType,
+		ref,
 		cr,
 		entrypoint,
 	)
@@ -558,7 +584,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		wf,
 		org,
 		name,
-		headbranch,
+		ref,
 		ws.config.CacheDefaults,
 	)
 	if err != nil {
@@ -573,22 +599,13 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 				Conclusion: "failure",
 			},
 		)
+		checkRunError(ctx, info, fmt.Errorf("creation of cache volume failed, %v", err), *title, updater)
 		return err
 	}
 
 	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
-		// Status: error to checkrun info failed - workflow create failed
-		updater.StatusUpdate(
-			ctx,
-			info,
-			GithubStatus{
-				Title:      *title,
-				Status:     fmt.Sprintf("argo workflow creation failed, %v", err),
-				Summary:    "completed",
-				Conclusion: "failure",
-			},
-		)
+		checkRunError(ctx, info, fmt.Errorf("argo workflow creation failed, %v", err), *title, updater)
 
 		return fmt.Errorf("workflow creation failed, %w", err)
 	}

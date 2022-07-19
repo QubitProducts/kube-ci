@@ -12,7 +12,7 @@ import (
 )
 
 type workflowRunner interface {
-	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, params map[string]string) error
+	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, deployevent *github.DeploymentEvent) error
 }
 
 type pvcManager interface {
@@ -129,7 +129,6 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		log.Printf("ignoring deployment event for %s/%s, CI run not requested", org, repo)
 		return http.StatusOK, "Ignored, set kube-ci.run to launch a CI task"
 	}
-	envParam := "env"
 
 	// Run a workflow to perform the deploy
 	// TODO, we need to pass in the extra environment
@@ -143,9 +142,7 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		event.GetDeployment().GetTask(),
 		nil,
 		ghClient,
-		map[string]string{
-			envParam: event.GetDeployment().GetEnvironment(),
-		},
+		event,
 	)
 
 	return http.StatusOK, ""
