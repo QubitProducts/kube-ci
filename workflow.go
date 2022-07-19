@@ -438,7 +438,7 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 
 	found := false
 	for i, t := range wf.Spec.Templates {
-		if t.Name == entrypoint {
+		if t.Name == wf.Spec.Entrypoint {
 			entrypointTemplateIndex = i
 			entrypointTemplate = t
 			found = true
