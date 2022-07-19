@@ -404,6 +404,7 @@ func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *work
 
 	if deployID == 0 {
 		// we need to create a new deployment and record it here
+		requiredContexts := []string{}
 		opts := &github.DeploymentRequest{
 			Environment:           github.String(env),
 			Task:                  github.String(n.TemplateName),
@@ -420,6 +421,7 @@ func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *work
 			Description:          github.String(desc),
 			TransientEnvironment: nil,                // TODO(tcm): support transient environments
 			AutoMerge:            github.Bool(false), // TODO(tcm): support auto-merge
+			RequiredContexts:     &requiredContexts,  // TODO(tcm): at the moment this trips up because the check we have created has finished
 		}
 		dep, err := info.ghClient.CreateDeployment(ctx, opts)
 		if err != nil {

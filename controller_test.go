@@ -662,6 +662,7 @@ func expectGithubCalls(fs ...setupf) []setupf {
 }
 
 func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
+	noRequired := []string{}
 	return &github.DeploymentRequest{
 		Ref:       github.String("heads/testdeploy"),
 		Task:      github.String("release"),
@@ -678,6 +679,7 @@ func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
 		Description:           github.String("deploying qubitdigital/qubit-grafana (release) to staging"),
 		TransientEnvironment:  nil,
 		ProductionEnvironment: github.Bool(false),
+		RequiredContexts:      &noRequired,
 	}
 }
 
