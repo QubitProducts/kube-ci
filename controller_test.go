@@ -582,7 +582,7 @@ func createDeployment(opts *github.DeploymentRequest, wf *workflow.Workflow) set
 func deploymentStatusRequest(_ *workflow.Workflow) *github.DeploymentStatusRequest {
 	return &github.DeploymentStatusRequest{
 		State:        github.String("failure"),
-		LogURL:       github.String("http://example.com/ui/workflows/default/wf/wf-1?nodeId=wf-1&sidePanel=logs%3Awf-1%3Amain&tab=workflow"),
+		LogURL:       github.String("http://example.com/ui/workflows/default/wf?nodeId=wf-1&sidePanel=logs%3Awf-1%3Amain&tab=workflow"),
 		Description:  github.String("deploying qubitdigital/qubit-grafana (release) to staging: failure"),
 		Environment:  github.String("staging"),
 		AutoInactive: github.Bool(true),

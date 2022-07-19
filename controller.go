@@ -521,7 +521,6 @@ func (ws *workflowSyncer) wfURL(wf *workflow.Workflow) string {
 func (ws *workflowSyncer) nodeURL(wf *workflow.Workflow, n workflow.NodeStatus) string {
 	base := ws.wfURL(wf)
 	u, _ := url.Parse(base)
-	u.Path = fmt.Sprintf("%s/%s", u.Path, n.ID)
 	vs := u.Query()
 	vs.Set("tab", "workflow")
 	vs.Set("nodeId", n.ID)
