@@ -372,7 +372,7 @@ func (ws *workflowSyncer) isProdEnvironment(env string) bool {
 	return ws.config.productionEnvironments.MatchString(env)
 }
 
-func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *workflow.Workflow, info *githubInfo, n workflow.NodeStatus, env string) (*workflow.Workflow, error) {
+func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *workflow.Workflow, info *githubInfo, n workflow.NodeStatus, env string) (int64, *workflow.Workflow, error) {
 	desc := fmt.Sprintf("deploying %s/%s (%s) to %s", info.orgName, info.repoName, n.TemplateName, env)
 	deployID := info.deploymentIDs[n.ID]
 
@@ -398,7 +398,7 @@ func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *work
 		}
 	}
 	if refPrefix == "" || refName == "" {
-		return nil, fmt.Errorf("can't create deployment, could not determine ref type or name from workflow")
+		return deployID, nil, fmt.Errorf("can't create deployment, could not determine ref type or name from workflow")
 	}
 	ref := fmt.Sprintf("%s/%s", refPrefix, refName)
 
@@ -423,22 +423,23 @@ func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *work
 		}
 		dep, err := info.ghClient.CreateDeployment(ctx, opts)
 		if err != nil {
-			return nil, fmt.Errorf("could not create on-demand deployment, %w", err)
+			return 0, nil, fmt.Errorf("could not create on-demand deployment, %w", err)
 		}
+		deployID = dep.GetID()
 
 		wf, err = ws.updateWorkflow(ctx, wf, func(wf *workflow.Workflow) {
 			if wf.Annotations == nil {
 				wf.Annotations = map[string]string{}
 			}
-			wf.Annotations[annDeploymentIDs+n.ID] = strconv.Itoa(int(dep.GetID()))
+			wf.Annotations[annDeploymentIDs+n.ID] = strconv.Itoa(int(deployID))
 		})
 		if err != nil {
 			// TODO(tcm): We should probably scrap the deployment we just created
-			return nil, fmt.Errorf("could not update with on-demand deployment, %w", err)
+			return 0, nil, fmt.Errorf("could not update with on-demand deployment, %w", err)
 		}
 	}
 
-	return wf, nil
+	return deployID, wf, nil
 }
 
 func (ws *workflowSyncer) getDeployNodeEnv(n workflow.NodeStatus) string {
@@ -470,14 +471,20 @@ func (ws *workflowSyncer) syncDeployments(ctx context.Context, wf *workflow.Work
 		if env == "" {
 			// TODO(tcm): need to report to the user that the deploy failed as we
 			// couldn't work out which env was being deployed to
+			log.Printf("couldn't determine env for %s/%s", wf.Namespace, wf.Name)
+			continue
 		}
 
 		deployID := info.deploymentIDs[n.ID]
 		if deployID == 0 {
-			if _, err := ws.createOnDemandDeployment(ctx, wf, info, n, env); err != nil {
+			id, _, err := ws.createOnDemandDeployment(ctx, wf, info, n, env)
+			if err != nil {
 				// TODO(tcm): need to report to the user that the deploy failed as we
 				// couldn't work out which env was being deployed to
+				log.Printf("couldn't create deployment for %s/%s,%v", wf.Namespace, wf.Name, err)
+				continue
 			}
+			deployID = id
 		}
 
 		desc := fmt.Sprintf("deploying %s/%s (%s) to %s: %s", info.orgName, info.repoName, n.TemplateName, env, state)
