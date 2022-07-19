@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -52,7 +53,7 @@ var (
 	annCheckRunName         = "kube-ci.qutics.com/check-run-name"
 	annCheckRunID           = "kube-ci.qutics.com/check-run-id"
 	annAnnotationsPublished = "kube-ci.qutics.com/annotations-published"
-	annDeploymentIDs        = "kube-ci.qutics.com/deployment-id-"
+	annDeploymentIDs        = "kube-ci.qutics.com/deployment-ids"
 
 	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
 	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
@@ -428,13 +429,17 @@ func (ws *workflowSyncer) createOnDemandDeployment(ctx context.Context, wf *work
 			return 0, nil, fmt.Errorf("could not create on-demand deployment, %w", err)
 		}
 		deployID = dep.GetID()
+		info.deploymentIDs[n.ID] = deployID
 
-		wf, err = ws.updateWorkflow(ctx, wf, func(wf *workflow.Workflow) {
-			if wf.Annotations == nil {
-				wf.Annotations = map[string]string{}
-			}
-			wf.Annotations[annDeploymentIDs+n.ID] = strconv.Itoa(int(deployID))
-		})
+		deploymentIDsJSON, err := json.Marshal(info.deploymentIDs)
+		if err == nil {
+			wf, err = ws.updateWorkflow(ctx, wf, func(wf *workflow.Workflow) {
+				if wf.Annotations == nil {
+					wf.Annotations = map[string]string{}
+				}
+				wf.Annotations[annDeploymentIDs] = string(deploymentIDsJSON)
+			})
+		}
 		if err != nil {
 			// TODO(tcm): We should probably scrap the deployment we just created
 			return 0, nil, fmt.Errorf("could not update with on-demand deployment, %w", err)
@@ -648,6 +653,8 @@ type githubInfo struct {
 	ghClient ghClientInterface
 }
 
+type deployIDs map[string]int64
+
 func githubInfoFromWorkflow(wf *workflow.Workflow, ghClientSrc githubClientSource) (*githubInfo, error) {
 	var err error
 
@@ -691,22 +698,9 @@ func githubInfoFromWorkflow(wf *workflow.Workflow, ghClientSrc githubClientSourc
 		return nil, fmt.Errorf("could not convert check  run id for %s/%s to int", wf.Namespace, wf.Name)
 	}
 
-	deploymentIDs := map[string]int64{}
-	for k, v := range wf.Annotations {
-		if !strings.HasPrefix(k, annDeploymentIDs) {
-			continue
-		}
-		nodeID := k[len(annDeploymentIDs):]
-		if nodeID == "" {
-			continue
-		}
-		var deploymentID int
-		deploymentID, err = strconv.Atoi(v)
-		if err != nil {
-			return nil, fmt.Errorf("could not convert deployment id for %s/%s.annotations[%s] to int", wf.Namespace, wf.Name, k)
-		}
-		deploymentIDs[nodeID] = int64(deploymentID)
-	}
+	deploymentIDs := deployIDs{}
+	deploymentIDsJSON := wf.Annotations[annDeploymentIDs]
+	json.Unmarshal([]byte(deploymentIDsJSON), &deploymentIDs)
 
 	ghClient, err := ghClientSrc.getClient(orgName, int(instID), repoName)
 	if err != nil {
@@ -767,10 +761,8 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 			wf.Annotations[k] = newCR.GetName()
 		case annCheckRunID:
 			wf.Annotations[k] = strconv.Itoa(int(newCR.GetID()))
-		default:
-			if strings.HasPrefix(k, annDeploymentIDs) {
-				delete(wf.Annotations, k)
-			}
+		case annDeploymentIDs:
+			wf.Annotations[k] = `{}`
 		}
 	}
 

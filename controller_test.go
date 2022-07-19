@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -503,7 +502,7 @@ func (f *fixture) expectCheckRunAnnotationsUpdate(wf *workflow.Workflow) *workfl
 // we expect to get a deployment update for each step
 func (f *fixture) expectDeploymentIDsUpdate(wf *workflow.Workflow) *workflow.Workflow {
 	wf = wf.DeepCopy()
-	wf.Annotations[annDeploymentIDs+"wf-1"] = "1"
+	wf.Annotations[annDeploymentIDs] = `{"wf-1":1}`
 
 	f.expectUpdateWorkflowsAction(wf)
 
@@ -519,11 +518,8 @@ func (f *fixture) expectWorkflowReset(wf *workflow.Workflow) *workflow.Workflow 
 	// so much have been reset.
 	anns := wf.Annotations
 	anns[annCheckRunID] = "1"
-
-	for k := range anns {
-		if strings.HasPrefix(k, "kube-ci.qutics.com/deployment-id-") {
-			delete(anns, k)
-		}
+	if _, ok := anns[annDeploymentIDs]; ok {
+		anns[annDeploymentIDs] = `{}`
 	}
 	wf.Annotations = anns
 
@@ -691,8 +687,8 @@ func TestCreateWorkflow(t *testing.T) {
 
 	alreadyPublished := map[string]string{annAnnotationsPublished: "true"}
 	alreadyPublishedWithDeploy := map[string]string{
-		annAnnotationsPublished:                 "true",
-		"kube-ci.qutics.com/deployment-id-wf-1": "4",
+		annAnnotationsPublished: "true",
+		annDeploymentIDs:        `{"wf-1":4}`,
 	}
 
 	var tests = []struct {
@@ -795,7 +791,7 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"deploy_running_external_trigger",
 			workflow.WorkflowRunning,
-			map[string]string{"kube-ci.qutics.com/deployment-id-wf-1": "1"},
+			map[string]string{annDeploymentIDs: `{"wf-1":1}`},
 			[]setupf{
 				enableDeploys(),
 				createsDeploymentStatus(),
