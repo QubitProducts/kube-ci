@@ -433,18 +433,20 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 	var entrypointTemplateIndex int
 	var entrypointTemplate workflow.Template
 	if entrypoint != "" {
-		found := false
-		for i, t := range wf.Spec.Templates {
-			if t.Name == entrypoint {
-				entrypointTemplateIndex = i
-				entrypointTemplate = t
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("requested entrypoint %q found in workflow templates", entrypoint)
-		}
 		wf.Spec.Entrypoint = entrypoint
+	}
+
+	found := false
+	for i, t := range wf.Spec.Templates {
+		if t.Name == entrypoint {
+			entrypointTemplateIndex = i
+			entrypointTemplate = t
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("requested entrypoint %q not found in workflow templates", entrypoint)
 	}
 
 	if ev == nil {
@@ -454,7 +456,7 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 	// if this is for a deployment we need to update the environment parameter
 	envParam := ws.config.EnvironmentParameter
 	env := ev.Deployment.GetEnvironment()
-	found := false
+	found = false
 
 	for i, p := range entrypointTemplate.Inputs.Parameters {
 		if p.Name == envParam {
