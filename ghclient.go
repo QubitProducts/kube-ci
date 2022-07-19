@@ -55,9 +55,7 @@ func (r *repoClient) StatusUpdate(
 ) {
 	log.Print(status.Summary)
 	if info.checkRunID != 0 {
-		opts := github.UpdateCheckRunOptions{
-			Name: defaultCheckRunName,
-		}
+		opts := github.UpdateCheckRunOptions{}
 
 		if status.Status != "" {
 			opts.Status = &status.Status

@@ -535,7 +535,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		instID:   ghClient.GetInstallID(),
 
 		checkRunID:   cr.GetID(),
-		checkRunName: defaultCheckRunName,
+		checkRunName: crName,
 	}
 
 	// Status: initialise CheckRun info
