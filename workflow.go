@@ -505,7 +505,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		// can't return here, we need to report the error
 	}
 
-	if epErr != nil {
+	if epErr == nil {
 		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
 	}
 	if de != nil {
