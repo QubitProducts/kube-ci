@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"regexp"
 	"testing"
@@ -322,6 +323,14 @@ spec:
         name: release-staging
         template: release
         when: '"{{workflow.parameters.branch}}" != master'
+  - name: release-staging
+    steps:
+    - - arguments:
+          parameters:
+          - name: env
+            value: staging
+        name: release-staging
+        template: release
   - name: release
     container:
       command:
@@ -512,6 +521,11 @@ func deploymentStatusRequest(_ *workflow.Workflow) *github.DeploymentStatusReque
 		AutoInactive: github.Bool(true),
 	}
 }
+func enableUserActions(regex string) setupf {
+	return func(f *fixture, _ *workflow.Workflow) {
+		f.config.actionTemplates = regexp.MustCompile(regex)
+	}
+}
 
 func enableDeploys(createsDeployment bool) setupf {
 	return func(f *fixture, wf *workflow.Workflow) {
@@ -560,6 +574,14 @@ func volumeAction(scope string) *github.CheckRunAction {
 	return &github.CheckRunAction{
 		Label:       "Clear Cache",
 		Description: "delete the cache volume for this build",
+		Identifier:  task,
+	}
+}
+
+func userAction(task string) *github.CheckRunAction {
+	return &github.CheckRunAction{
+		Label:       task,
+		Description: fmt.Sprintf("Run the %s template", task),
 		Identifier:  task,
 	}
 }
@@ -655,6 +677,15 @@ func TestCreateWorkflow(t *testing.T) {
 			githubStatus("completed", "success", volumeAction("project")),
 		},
 		{
+			"normal_succeeded_with_action_buttons",
+			workflow.WorkflowSucceeded,
+			map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
+			true,
+			false,
+			[]setupf{enableUserActions("^release-staging$")},
+			githubStatus("completed", "success", volumeAction("project"), userAction("release-staging")),
+		},
+		{
 			"normal_failure",
 			workflow.WorkflowFailed,
 			nil,
@@ -686,7 +717,7 @@ func TestCreateWorkflow(t *testing.T) {
 		},
 		{
 			"restart_running",
-			workflow.WorkflowPending,
+			workflow.WorkflowRunning,
 			alreadyPublished,
 			false,
 			true,
