@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -334,6 +335,11 @@ spec:
             value: staging
         name: release-staging
         template: release
+  - name: very-long-action-button-name
+  - name: too-many-btns-1
+  - name: too-many-btns-2
+  - name: too-many-btns-3
+  - name: too-many-bton-4-drop
   - name: release
     container:
       command:
@@ -446,7 +452,11 @@ func userAction(task string) *github.CheckRunAction {
 
 // githubStatus creates a GithubStatus that matches the output for the above workflow
 // this should really pull more info from the workflow
-func githubStatus(status, conclusion string, actions ...*github.CheckRunAction) GithubStatus {
+func githubStatus(status, conclusion string, warnings []string, actions ...*github.CheckRunAction) GithubStatus {
+	text := "wf[1].release-staging(Failed): Error (exit code 2) \n"
+	parts := append(warnings, text)
+	text = strings.Join(parts, "\n")
+
 	return GithubStatus{
 		Status:     status,
 		Conclusion: conclusion,
@@ -455,7 +465,7 @@ func githubStatus(status, conclusion string, actions ...*github.CheckRunAction) 
 
 		DetailsURL: "http://example.com/ui/workflows/default/wf",
 		Summary:    "child 'wf-1' failed",
-		Text:       "wf[1].release-staging(Failed): Error (exit code 2) \n",
+		Text:       text,
 
 		Annotations: nil,
 	}
@@ -715,13 +725,13 @@ func TestCreateWorkflow(t *testing.T) {
 			"normal_pending",
 			workflow.WorkflowPending,
 			nil,
-			githubStatus("queued", ""),
+			githubStatus("queued", "", nil),
 		},
 		{
 			"normal_running",
 			workflow.WorkflowRunning,
 			nil,
-			githubStatus("in_progress", ""),
+			githubStatus("in_progress", "", nil),
 		},
 		{
 			"normal_succeeded",
@@ -729,7 +739,7 @@ func TestCreateWorkflow(t *testing.T) {
 			[]setupf{
 				updatesCheckRunAnnotations(),
 			},
-			githubStatus("completed", "success"),
+			githubStatus("completed", "success", nil),
 		},
 		{
 			"normal_succeeded_with_branch_volume",
@@ -740,7 +750,7 @@ func TestCreateWorkflow(t *testing.T) {
 				),
 				updatesCheckRunAnnotations(),
 			},
-			githubStatus("completed", "success", volumeAction("branch")),
+			githubStatus("completed", "success", nil, volumeAction("branch")),
 		},
 		{
 			"normal_succeeded_with_project_volume",
@@ -751,7 +761,7 @@ func TestCreateWorkflow(t *testing.T) {
 				),
 				updatesCheckRunAnnotations(),
 			},
-			githubStatus("completed", "success", volumeAction("project")),
+			githubStatus("completed", "success", nil, volumeAction("project")),
 		},
 		{
 			"normal_succeeded_with_action_buttons",
@@ -763,7 +773,38 @@ func TestCreateWorkflow(t *testing.T) {
 				updatesCheckRunAnnotations(),
 				enableUserActions("^release-staging$"),
 			},
-			githubStatus("completed", "success", volumeAction("project"), userAction("release-staging")),
+			githubStatus("completed", "success", nil, volumeAction("project"), userAction("release-staging")),
+		},
+		{
+			"normal_succeeded_with_long_action_buttons",
+			workflow.WorkflowSucceeded,
+			[]setupf{
+				addAnnotations(
+					map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
+				),
+				updatesCheckRunAnnotations(),
+				enableUserActions("^very-long-"),
+			},
+			githubStatus(
+				"completed",
+				"success",
+				[]string{"**WARNING:** Action button very-long-action-button-name dropped, only 20 chars permitted"},
+				volumeAction("project")),
+		},
+		{
+			"normal_succeeded_with_too many _action_buttons",
+			workflow.WorkflowSucceeded,
+			[]setupf{
+				updatesCheckRunAnnotations(),
+				enableUserActions("^too-many-"),
+			},
+			githubStatus(
+				"completed",
+				"success",
+				[]string{"**WARNING:** Action buttons dropped, only 3 are permitted (too-many-bton-4-drop)"},
+				userAction("too-many-btns-1"),
+				userAction("too-many-btns-2"),
+				userAction("too-many-btns-3")),
 		},
 		{
 			"normal_failure",
@@ -771,7 +812,7 @@ func TestCreateWorkflow(t *testing.T) {
 			[]setupf{
 				updatesCheckRunAnnotations(),
 			},
-			githubStatus("completed", "failure"),
+			githubStatus("completed", "failure", nil),
 		},
 		{
 			// TODO: This might want further thought, a workflow errors if something
@@ -780,7 +821,7 @@ func TestCreateWorkflow(t *testing.T) {
 			"normal_error",
 			workflow.WorkflowError,
 			nil,
-			githubStatus("completed", "failure"),
+			githubStatus("completed", "failure", nil),
 		},
 		{
 			"restart_pending",
@@ -790,7 +831,7 @@ func TestCreateWorkflow(t *testing.T) {
 				createsCheckRun("queued", "Creating workflow"),
 				resetsWorkflow(),
 			),
-			githubStatus("queued", ""),
+			githubStatus("queued", "", nil),
 		},
 		{
 			"restart_running",
@@ -800,7 +841,7 @@ func TestCreateWorkflow(t *testing.T) {
 				createsCheckRun("queued", "Creating workflow"),
 				resetsWorkflow(),
 			),
-			githubStatus("in_progress", ""),
+			githubStatus("in_progress", "", nil),
 		},
 		{
 			"deploy_running_external_trigger",
@@ -812,7 +853,7 @@ func TestCreateWorkflow(t *testing.T) {
 				enableDeploys(),
 				createsDeploymentStatus(),
 			},
-			githubStatus("in_progress", ""),
+			githubStatus("in_progress", "", nil),
 		},
 		{
 			"deploy_running_ondemand",
@@ -823,7 +864,7 @@ func TestCreateWorkflow(t *testing.T) {
 				createsDeploymentStatus(),
 				updatesDeploymentID(),
 			},
-			githubStatus("in_progress", ""),
+			githubStatus("in_progress", "", nil),
 		},
 		{
 			// A workflow that was triggered by an external deployment
@@ -840,7 +881,7 @@ func TestCreateWorkflow(t *testing.T) {
 				createsDeploymentStatus(),
 				resetsWorkflowAndDeploymentID(),
 			},
-			githubStatus("in_progress", ""),
+			githubStatus("in_progress", "", nil),
 		},
 		{
 			// A normal workflow that creates deployments on-demand has
@@ -857,7 +898,7 @@ func TestCreateWorkflow(t *testing.T) {
 				createsDeploymentStatus(),
 				resetsWorkflowAndDeploymentID(),
 			},
-			githubStatus("in_progress", ""),
+			githubStatus("in_progress", "", nil),
 		},
 	}
 	for _, tt := range tests {

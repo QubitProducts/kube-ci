@@ -473,6 +473,10 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 	return nil
 }
 
+func (ws *workflowSyncer) lintWorkflow(wf *workflow.Workflow) (*workflow.Workflow, []string) {
+	return nil, nil
+}
+
 func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, sha, refType, ref, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, de *github.DeploymentEvent) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()

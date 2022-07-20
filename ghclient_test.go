@@ -127,24 +127,12 @@ func (tcs *testGHClientSrc) getCheckRunStatus() GithubStatus {
 			// we should fold the github status updates, appending
 			// annotations etc, to mirror github's behaviour
 
-			if crs.Status != "" {
-				res.Status = crs.Status
-			}
-			if crs.Conclusion != "" {
-				res.Conclusion = crs.Conclusion
-			}
-			if crs.Text != "" {
-				res.Text = crs.Text
-			}
-			if crs.DetailsURL != "" {
-				res.DetailsURL = crs.DetailsURL
-			}
-			if crs.Title != "" {
-				res.Title = crs.Title
-			}
-			if crs.Summary != "" {
-				res.Summary = crs.Summary
-			}
+			res.Status = crs.Status
+			res.Conclusion = crs.Conclusion
+			res.Text = crs.Text
+			res.DetailsURL = crs.DetailsURL
+			res.Title = crs.Title
+			res.Summary = crs.Summary
 
 			if crs.Actions != nil {
 				res.Actions = crs.Actions

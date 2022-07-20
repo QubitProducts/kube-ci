@@ -65,6 +65,8 @@ var (
 
 	annFeatures = "kube-ci.qutics.com/features"
 
+	annWorkflowLint = "kube-ci.qutics.com/lint"
+
 	labelManagedBy = "managedBy"
 	labelOrg       = "org"
 	labelRepo      = "repo"
@@ -565,22 +567,23 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 	text := ws.nodesText(wf)
 
+	ghStatus := GithubStatus{
+		Title:      title,
+		Summary:    summary,
+		Status:     status,
+		Conclusion: conclusion,
+		DetailsURL: ws.wfURL(wf),
+		Text:       text,
+	}
 	// Status: Progress Update
 	info.ghClient.StatusUpdate(
 		ctx,
 		info,
-		GithubStatus{
-			Title:      title,
-			Summary:    summary,
-			Status:     status,
-			Conclusion: conclusion,
-			DetailsURL: ws.wfURL(wf),
-			Text:       text,
-		},
+		ghStatus,
 	)
 
 	if status == "completed" {
-		_, err = ws.completeCheckRun(ctx, &title, &summary, &text, wf, info)
+		_, err = ws.completeCheckRun(ctx, wf, info, ghStatus)
 	}
 
 	return err
@@ -796,6 +799,11 @@ func usesCacheVolume(wf *workflow.Workflow) bool {
 }
 
 func clearCacheAction(wf *workflow.Workflow) *github.CheckRunAction {
+	if wf.Status.Phase == workflow.WorkflowFailed ||
+		wf.Status.Phase == workflow.WorkflowError {
+		return nil
+	}
+
 	if !usesCacheVolume(wf) {
 		return nil
 	}
@@ -811,9 +819,8 @@ func clearCacheAction(wf *workflow.Workflow) *github.CheckRunAction {
 	}
 }
 
-func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *githubInfo, allAnns []*github.CheckRunAnnotation, title, summary, text *string) error {
-	var err error
-
+func (ws *workflowSyncer) buttonsForWorkflow(wf *workflow.Workflow) ([]*github.CheckRunAction, []string) {
+	var warnings []string
 	var actions []*github.CheckRunAction
 	if action := clearCacheAction(wf); action != nil {
 		actions = append(actions, action)
@@ -822,6 +829,10 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 	if wf.Status.Phase == workflow.WorkflowSucceeded {
 		for _, t := range wf.Spec.Templates {
 			if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
+				if len(t.Name) > 20 {
+					warnings = append(warnings, fmt.Sprintf("Action button %s dropped, only 20 chars permitted", t.Name))
+					continue
+				}
 				actions = append(actions, &github.CheckRunAction{
 					Label:       t.Name,
 					Description: fmt.Sprintf("Run the %s template", t.Name),
@@ -831,14 +842,40 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 		}
 	}
 
+	maxButtons := 3
+	if len(actions) > maxButtons {
+		dropped := []string{}
+		for _, d := range actions[maxButtons:] {
+			dropped = append(dropped, d.Label)
+		}
+		actions = actions[0:maxButtons]
+
+		warn := fmt.Sprintf("Action buttons dropped, only 3 are permitted (%s)", strings.Join(dropped, ","))
+		warnings = append(warnings, warn)
+	}
+	return actions, warnings
+}
+
+func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *githubInfo, ghStatus GithubStatus) error {
+	var err error
+	var warnings []string
+
+	allAnns := ghStatus.Annotations
+	ghStatus.Actions, warnings = ws.buttonsForWorkflow(wf)
+
+	output := ghStatus.Text
+	for _, w := range warnings {
+		output = fmt.Sprintf("**WARNING:** %s\n%s", w, output)
+	}
+	ghStatus.Text = output
+
+	ghStatus.Annotations = nil
 	ctx := context.Background()
 	// Status: Add actions
 	ghInfo.ghClient.StatusUpdate(
 		ctx,
 		ghInfo,
-		GithubStatus{
-			Actions: actions,
-		},
+		ghStatus,
 	)
 	if err != nil {
 		return fmt.Errorf("error, failed updating check run status, %w", err)
@@ -853,16 +890,11 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 		}
 		// Status: Add annotations
 		anns := allAnns[start:end]
+		ghStatus.Annotations = anns
 		ghInfo.ghClient.StatusUpdate(
 			ctx,
 			ghInfo,
-			GithubStatus{
-				Summary:     *summary,
-				Text:        *text,
-				Title:       *title,
-				Annotations: anns,
-				Actions:     actions,
-			},
+			ghStatus,
 		)
 	}
 	return nil
@@ -870,7 +902,7 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 
 // completeCheckRun is used to publish any annotations found in the logs from a check run.
 // There are a bunch of reasons this could fail.
-func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, text *string, wf *workflow.Workflow, ghInfo *githubInfo) (*workflow.Workflow, error) {
+func (ws *workflowSyncer) completeCheckRun(ctx context.Context, wf *workflow.Workflow, ghInfo *githubInfo, ghStatus GithubStatus) (*workflow.Workflow, error) {
 	if wf.Status.Phase != workflow.WorkflowFailed &&
 		wf.Status.Phase != workflow.WorkflowSucceeded {
 		return wf, nil
@@ -895,7 +927,8 @@ func (ws *workflowSyncer) completeCheckRun(ctx context.Context, title, summary, 
 		allAnns = append(allAnns, anns...)
 	}
 
-	err := ws.ghCompleteCheckRun(wf, ghInfo, allAnns, title, summary, text)
+	ghStatus.Annotations = allAnns
+	err := ws.ghCompleteCheckRun(wf, ghInfo, ghStatus)
 	if err != nil {
 		return nil, fmt.Errorf("completing github check-run failed, %w", err)
 	}
