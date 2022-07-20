@@ -51,6 +51,8 @@ type fixture struct {
 	// Objects from here preloaded into NewSimpleFake.
 	k8sObjects []runtime.Object
 	wfObjects  []runtime.Object
+
+	wf *workflow.Workflow
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -58,6 +60,7 @@ func newFixture(t *testing.T) *fixture {
 	f.t = t
 	f.wfObjects = []runtime.Object{}
 	f.k8sObjects = []runtime.Object{}
+	f.wf = baseTestWorkflow()
 	return f
 }
 
@@ -557,25 +560,36 @@ func (f *fixture) expectGithubCall(call string, res interface{}, args ...interfa
 	f.expectGithubRawCall(call, nil, res, args...)
 }
 
-type setupf func(f *fixture, wf *workflow.Workflow)
+type setupf func(f *fixture)
 
 func createCheckRunRaw(opt github.CreateCheckRunOptions) setupf {
-	return func(f *fixture, _ *workflow.Workflow) {
+	return func(f *fixture) {
 		f.expectGithubCall("create_check_run", nil, opt)
 	}
 }
 
-func createDeploymentStatus(opts *github.DeploymentStatusRequest, wf *workflow.Workflow) setupf {
-	return func(f *fixture, _ *workflow.Workflow) {
+func createDeploymentStatus(opts *github.DeploymentStatusRequest) setupf {
+	return func(f *fixture) {
 		id := int64(1)
 		f.expectGithubCall("create_deployment_status", &github.DeploymentStatus{ID: &id}, opts)
 	}
 }
 
-func createDeployment(opts *github.DeploymentRequest, wf *workflow.Workflow) setupf {
-	return func(f *fixture, _ *workflow.Workflow) {
+func createDeployment(opts *github.DeploymentRequest) setupf {
+	return func(f *fixture) {
 		id := int64(1)
 		f.expectGithubCall("create_deployment", &github.Deployment{ID: &id}, opts)
+	}
+}
+
+func addAnnotations(anns map[string]string) setupf {
+	return func(f *fixture) {
+		for k, v := range anns {
+			if f.wf.Annotations == nil {
+				f.wf.Annotations = map[string]string{}
+			}
+			f.wf.Annotations[k] = v
+		}
 	}
 }
 
@@ -590,13 +604,13 @@ func deploymentStatusRequest(_ *workflow.Workflow) *github.DeploymentStatusReque
 }
 
 func enableUserActions(regex string) setupf {
-	return func(f *fixture, _ *workflow.Workflow) {
+	return func(f *fixture) {
 		f.config.actionTemplates = regexp.MustCompile(regex)
 	}
 }
 
 func enableDeploys() setupf {
-	return func(f *fixture, _ *workflow.Workflow) {
+	return func(f *fixture) {
 		f.config.deployTemplates = regexp.MustCompile("^release$")
 		f.config.productionEnvironments = regexp.MustCompile("^production$")
 		f.config.EnvironmentParameter = "env"
@@ -604,14 +618,14 @@ func enableDeploys() setupf {
 }
 
 func createsDeployment() setupf {
-	return func(f *fixture, wf *workflow.Workflow) {
-		createDeployment(deploymentRequest(wf), wf)(f, wf)
+	return func(f *fixture) {
+		createDeployment(deploymentRequest(f.wf))(f)
 	}
 }
 
 func createsDeploymentStatus() setupf {
-	return func(f *fixture, wf *workflow.Workflow) {
-		createDeploymentStatus(deploymentStatusRequest(wf), wf)(f, wf)
+	return func(f *fixture) {
+		createDeploymentStatus(deploymentStatusRequest(f.wf))(f)
 	}
 }
 
@@ -630,26 +644,26 @@ func createsCheckRun(status, summary string) setupf {
 }
 
 func updatesCheckRunAnnotations() setupf {
-	return func(f *fixture, wf *workflow.Workflow) {
-		f.expectCheckRunAnnotationsUpdate(wf)
+	return func(f *fixture) {
+		f.expectCheckRunAnnotationsUpdate(f.wf)
 	}
 }
 
 func resetsWorkflow() setupf {
-	return func(f *fixture, wf *workflow.Workflow) {
-		f.expectWorkflowReset(wf)
+	return func(f *fixture) {
+		f.expectWorkflowReset(f.wf)
 	}
 }
 
 func updatesDeploymentID() setupf {
-	return func(f *fixture, wf *workflow.Workflow) {
-		f.expectDeploymentIDsUpdate(wf)
+	return func(f *fixture) {
+		f.expectDeploymentIDsUpdate(f.wf)
 	}
 }
 
 func resetsWorkflowAndDeploymentID() setupf {
-	return func(f *fixture, wf *workflow.Workflow) {
-		f.expectDeploymentIDsUpdateAfterWorkflowReset(wf)
+	return func(f *fixture) {
+		f.expectDeploymentIDsUpdateAfterWorkflowReset(f.wf)
 	}
 }
 
@@ -692,16 +706,14 @@ func TestCreateWorkflow(t *testing.T) {
 	}
 
 	var tests = []struct {
-		name             string
-		phase            workflow.WorkflowPhase
-		extraAnnotations map[string]string
-		setup            []setupf
-		expectStatus     GithubStatus
+		name         string
+		phase        workflow.WorkflowPhase
+		setup        []setupf
+		expectStatus GithubStatus
 	}{
 		{
 			"normal_pending",
 			workflow.WorkflowPending,
-			nil,
 			nil,
 			githubStatus("queued", ""),
 		},
@@ -709,13 +721,11 @@ func TestCreateWorkflow(t *testing.T) {
 			"normal_running",
 			workflow.WorkflowRunning,
 			nil,
-			nil,
 			githubStatus("in_progress", ""),
 		},
 		{
 			"normal_succeeded",
 			workflow.WorkflowSucceeded,
-			nil,
 			[]setupf{
 				updatesCheckRunAnnotations(),
 			},
@@ -724,8 +734,10 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"normal_succeeded_with_branch_volume",
 			workflow.WorkflowSucceeded,
-			map[string]string{"kube-ci.qutics.com/cacheScope": "branch"},
 			[]setupf{
+				addAnnotations(
+					map[string]string{"kube-ci.qutics.com/cacheScope": "branch"},
+				),
 				updatesCheckRunAnnotations(),
 			},
 			githubStatus("completed", "success", volumeAction("branch")),
@@ -733,8 +745,10 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"normal_succeeded_with_project_volume",
 			workflow.WorkflowSucceeded,
-			map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
 			[]setupf{
+				addAnnotations(
+					map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
+				),
 				updatesCheckRunAnnotations(),
 			},
 			githubStatus("completed", "success", volumeAction("project")),
@@ -742,8 +756,10 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"normal_succeeded_with_action_buttons",
 			workflow.WorkflowSucceeded,
-			map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
 			[]setupf{
+				addAnnotations(
+					map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
+				),
 				updatesCheckRunAnnotations(),
 				enableUserActions("^release-staging$"),
 			},
@@ -752,7 +768,6 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"normal_failure",
 			workflow.WorkflowFailed,
-			nil,
 			[]setupf{
 				updatesCheckRunAnnotations(),
 			},
@@ -765,14 +780,13 @@ func TestCreateWorkflow(t *testing.T) {
 			"normal_error",
 			workflow.WorkflowError,
 			nil,
-			nil,
 			githubStatus("completed", "failure"),
 		},
 		{
 			"restart_pending",
 			workflow.WorkflowPending,
-			alreadyPublished,
 			expectGithubCalls(
+				addAnnotations(alreadyPublished),
 				createsCheckRun("queued", "Creating workflow"),
 				resetsWorkflow(),
 			),
@@ -781,8 +795,8 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"restart_running",
 			workflow.WorkflowRunning,
-			alreadyPublished,
 			expectGithubCalls(
+				addAnnotations(alreadyPublished),
 				createsCheckRun("queued", "Creating workflow"),
 				resetsWorkflow(),
 			),
@@ -791,8 +805,10 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"deploy_running_external_trigger",
 			workflow.WorkflowRunning,
-			map[string]string{annDeploymentIDs: `{"wf-1":1}`},
 			[]setupf{
+				addAnnotations(
+					map[string]string{annDeploymentIDs: `{"wf-1":1}`},
+				),
 				enableDeploys(),
 				createsDeploymentStatus(),
 			},
@@ -801,7 +817,6 @@ func TestCreateWorkflow(t *testing.T) {
 		{
 			"deploy_running_ondemand",
 			workflow.WorkflowRunning,
-			nil,
 			[]setupf{
 				enableDeploys(),
 				createsDeployment(),
@@ -815,8 +830,10 @@ func TestCreateWorkflow(t *testing.T) {
 			// creation has been resubmitted
 			"deploy_restart_external_trigger",
 			workflow.WorkflowRunning,
-			alreadyPublishedWithDeploy,
 			[]setupf{
+				addAnnotations(
+					alreadyPublishedWithDeploy,
+				),
 				enableDeploys(),
 				createsCheckRun("queued", "Creating workflow"),
 				createsDeployment(),
@@ -830,8 +847,10 @@ func TestCreateWorkflow(t *testing.T) {
 			// has been resubmitted
 			"deploy_restart_ondemand",
 			workflow.WorkflowRunning,
-			alreadyPublishedWithDeploy,
 			[]setupf{
+				addAnnotations(
+					alreadyPublishedWithDeploy,
+				),
 				enableDeploys(),
 				createsCheckRun("queued", "Creating workflow"),
 				createsDeployment(),
@@ -847,23 +866,19 @@ func TestCreateWorkflow(t *testing.T) {
 			f := newFixture(t)
 			f.config = config
 
-			wf := baseTestWorkflow()
-			wf.Status.Phase = tt.phase
-			for k, v := range tt.extraAnnotations {
-				wf.Annotations[k] = v
-			}
+			f.wf.Status.Phase = tt.phase
 			pod := newPod("default", "wf-1")
 
 			for _, setup := range tt.setup {
-				setup(f, wf)
+				setup(f)
 			}
 
 			f.k8sObjects = append(f.k8sObjects, pod)
-			f.wfObjects = append(f.wfObjects, wf)
+			f.wfObjects = append(f.wfObjects, f.wf)
 
 			f.githubStatus = tt.expectStatus
 
-			f.run(wf, t)
+			f.run(f.wf, t)
 		})
 	}
 }
