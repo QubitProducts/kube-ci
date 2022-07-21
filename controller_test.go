@@ -45,14 +45,16 @@ type fixture struct {
 	// Objects to put in the store.
 	workflowsLister []*workflow.Workflow
 
-	// Actions expected to happen on the client.
-	k8sActions           []k8stesting.Action
-	wfActions            []k8stesting.Action
-	githubCalls          map[string][]githubCall
-	githubCheckRunStatus github.CheckRun
 	// Objects from here preloaded into NewSimpleFake.
 	k8sObjects []runtime.Object
 	wfObjects  []runtime.Object
+
+	// Actions expected to happen on the client.
+	k8sActions            []k8stesting.Action
+	wfActions             []k8stesting.Action
+	githubCalls           map[string][]githubCall
+	githubCheckRunStatus  github.CheckRun
+	githubCheckRunActions []*github.CheckRunAction
 
 	wf *workflow.Workflow
 }
@@ -160,7 +162,9 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	if err != nil {
 		f.t.Errorf("final workflow has invalid check-run id, %v", err)
 	}
-	compare("wrong Github Check Run status", f.githubCheckRunStatus, gh.getCheckRunStatus(int64(crid)), f.t)
+	status, actions := gh.getCheckRunStatus(int64(crid))
+	compare("wrong Github Check Run status", f.githubCheckRunStatus, status, f.t)
+	compare("wrong check-run action buttons", f.githubCheckRunActions, actions, f.t)
 
 	compareGithubActions("wrong github calls", f.githubCalls, gh.calls, f.t)
 
@@ -471,7 +475,7 @@ func userAction(task string) *github.CheckRunAction {
 
 // githubStatus creates a GithubStatus that matches the output for the above workflow
 // this should really pull more info from the workflow
-func githubStatus(status, conclusion string, warnings []string, actions ...*github.CheckRunAction) github.CheckRun {
+func githubStatus(status, conclusion string, warnings []string) github.CheckRun {
 	text := "wf[1].release-staging(Failed): Error (exit code 2) \n"
 	parts := append(warnings, text)
 	text = strings.Join(parts, "\n")
@@ -710,6 +714,12 @@ func expectGithubCalls(fs ...setupf) []setupf {
 	return fs
 }
 
+func expectCheckRunActions(acts ...*github.CheckRunAction) setupf {
+	return func(f *fixture) {
+		f.githubCheckRunActions = acts
+	}
+}
+
 func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
 	noRequired := []string{}
 	return &github.DeploymentRequest{
@@ -778,8 +788,9 @@ func TestCreateWorkflow(t *testing.T) {
 					map[string]string{"kube-ci.qutics.com/cacheScope": "branch"},
 				),
 				updatesCheckRunAnnotations(),
+				expectCheckRunActions(volumeAction("branch")),
 			},
-			githubStatus("completed", "success", nil, volumeAction("branch")),
+			githubStatus("completed", "success", nil),
 		},
 		{
 			"normal_succeeded_with_project_volume",
@@ -789,8 +800,9 @@ func TestCreateWorkflow(t *testing.T) {
 					map[string]string{"kube-ci.qutics.com/cacheScope": "project"},
 				),
 				updatesCheckRunAnnotations(),
+				expectCheckRunActions(volumeAction("project")),
 			},
-			githubStatus("completed", "success", nil, volumeAction("project")),
+			githubStatus("completed", "success", nil),
 		},
 		{
 			"normal_succeeded_with_action_buttons",
@@ -801,8 +813,9 @@ func TestCreateWorkflow(t *testing.T) {
 				),
 				updatesCheckRunAnnotations(),
 				enableUserActions("^release-staging$"),
+				expectCheckRunActions(volumeAction("project"), userAction("release-staging")),
 			},
-			githubStatus("completed", "success", nil, volumeAction("project"), userAction("release-staging")),
+			githubStatus("completed", "success", nil),
 		},
 		{
 			"normal_succeeded_with_long_action_buttons",
@@ -813,12 +826,13 @@ func TestCreateWorkflow(t *testing.T) {
 				),
 				updatesCheckRunAnnotations(),
 				enableUserActions("^very-long-"),
+				expectCheckRunActions(volumeAction("project")),
 			},
 			githubStatus(
 				"completed",
 				"success",
 				[]string{"**WARNING:** Action button very-long-action-button-name dropped, only 20 chars permitted"},
-				volumeAction("project")),
+			),
 		},
 		{
 			"normal_succeeded_with_too many _action_buttons",
@@ -826,14 +840,16 @@ func TestCreateWorkflow(t *testing.T) {
 			[]setupf{
 				updatesCheckRunAnnotations(),
 				enableUserActions("^too-many-"),
+				expectCheckRunActions(
+					userAction("too-many-btns-1"),
+					userAction("too-many-btns-2"),
+					userAction("too-many-btns-3")),
 			},
 			githubStatus(
 				"completed",
 				"success",
 				[]string{"**WARNING:** Action buttons dropped, only 3 are permitted (too-many-bton-4-drop)"},
-				userAction("too-many-btns-1"),
-				userAction("too-many-btns-2"),
-				userAction("too-many-btns-3")),
+			),
 		},
 		{
 			"normal_failure",

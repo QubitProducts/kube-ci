@@ -107,15 +107,15 @@ type githubCall struct {
 type testGHClientSrc struct {
 	t *testing.T
 
-	actions map[string][]githubCall
+	calls map[string][]githubCall
 }
 
 func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{}, args ...interface{}) {
-	if tcs.actions == nil {
-		tcs.actions = map[string][]githubCall{}
+	if tcs.calls == nil {
+		tcs.calls = map[string][]githubCall{}
 	}
 	ghcall := githubCall{Args: args, Err: err, Res: res}
-	tcs.actions[call] = append(tcs.actions[call], ghcall)
+	tcs.calls[call] = append(tcs.calls[call], ghcall)
 }
 
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {
@@ -132,18 +132,22 @@ func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (g
 // - Other fields are optional (with the documented behaviour of status,
 //   completed, and completedAt
 // The mock currently assumed there is only one org, repo and install
-func (tcs *testGHClientSrc) getCheckRunStatus(id int64) github.CheckRun {
-	createCalls := tcs.actions["create_check_run"]
-	updateCalls := tcs.actions["update_check_run"]
+func (tcs *testGHClientSrc) getCheckRunStatus(id int64) (github.CheckRun, []*github.CheckRunAction) {
+	createCalls := tcs.calls["create_check_run"]
+	updateCalls := tcs.calls["update_check_run"]
 
 	checkRuns := map[int64]github.CheckRun{}
+	checkRunsActions := map[int64][]*github.CheckRunAction{}
 	for _, call := range createCalls {
 		res := call.Res.(*github.CheckRun)
 		checkRuns[res.GetID()] = *res
+		opts := call.Args[0].(github.CreateCheckRunOptions)
+		checkRunsActions[res.GetID()] = opts.Actions
 	}
 
 	res := checkRuns[id]
 	out := &github.CheckRunOutput{}
+	resActions := checkRunsActions[id]
 
 	// Need to copy output
 	if res.Output != nil {
@@ -159,6 +163,9 @@ func (tcs *testGHClientSrc) getCheckRunStatus(id int64) github.CheckRun {
 		}
 
 		upd := call.Args[1].(github.UpdateCheckRunOptions)
+		if upd.Actions != nil {
+			resActions = upd.Actions
+		}
 
 		if upd.DetailsURL != nil {
 			res.DetailsURL = upd.DetailsURL
@@ -183,5 +190,5 @@ func (tcs *testGHClientSrc) getCheckRunStatus(id int64) github.CheckRun {
 		}
 	}
 
-	return res
+	return res, resActions
 }
