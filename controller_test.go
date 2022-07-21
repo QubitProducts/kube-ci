@@ -46,10 +46,10 @@ type fixture struct {
 	workflowsLister []*workflow.Workflow
 
 	// Actions expected to happen on the client.
-	k8sActions    []k8stesting.Action
-	wfActions     []k8stesting.Action
-	githubActions map[string][]githubCall
-	githubStatus  github.CheckRun
+	k8sActions           []k8stesting.Action
+	wfActions            []k8stesting.Action
+	githubCalls          map[string][]githubCall
+	githubCheckRunStatus github.CheckRun
 	// Objects from here preloaded into NewSimpleFake.
 	k8sObjects []runtime.Object
 	wfObjects  []runtime.Object
@@ -160,9 +160,9 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	if err != nil {
 		f.t.Errorf("final workflow has invalid check-run id, %v", err)
 	}
-	compare("wrong Github Check Run status", f.githubStatus, gh.getCheckRunStatus(int64(crid)), f.t)
+	compare("wrong Github Check Run status", f.githubCheckRunStatus, gh.getCheckRunStatus(int64(crid)), f.t)
 
-	compareGithubActions("wrong github calls", f.githubActions, gh.actions, f.t)
+	compareGithubActions("wrong github calls", f.githubCalls, gh.calls, f.t)
 
 }
 
@@ -574,10 +574,10 @@ func (f *fixture) expectDeploymentIDsUpdateAfterWorkflowReset(wf *workflow.Workf
 }
 
 func (f *fixture) expectGithubRawCall(call string, err error, res interface{}, args ...interface{}) {
-	if f.githubActions == nil {
-		f.githubActions = map[string][]githubCall{}
+	if f.githubCalls == nil {
+		f.githubCalls = map[string][]githubCall{}
 	}
-	f.githubActions[call] = append(f.githubActions[call], githubCall{
+	f.githubCalls[call] = append(f.githubCalls[call], githubCall{
 		Args: args,
 		Err:  err,
 		Res:  res,
@@ -946,7 +946,7 @@ func TestCreateWorkflow(t *testing.T) {
 			f.k8sObjects = append(f.k8sObjects, pod)
 			f.wfObjects = append(f.wfObjects, f.wf)
 
-			f.githubStatus = tt.expectStatus
+			f.githubCheckRunStatus = tt.expectStatus
 
 			f.run(f.wf, t)
 		})
