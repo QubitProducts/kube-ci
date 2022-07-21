@@ -24,24 +24,31 @@ func (tgi *testGHClientInterface) GetRef(ctx context.Context, ref string) (*gith
 	panic("not implemented") // TODO: Implement
 }
 
-func (tgi *testGHClientInterface) UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error) {
-	panic("not implemented") // TODO: Implement // Not used on this client anyway, we use StatusUpdate
-}
-
-func (tgi *testGHClientInterface) StatusUpdate(ctx context.Context, info *githubInfo, status GithubStatus) {
-	if tgi.src.statusUpdates == nil {
-		tgi.src.statusUpdates = map[int64][]GithubStatus{}
-	}
-	tgi.src.statusUpdates[info.checkRunID] = append(tgi.src.statusUpdates[info.checkRunID], status)
-}
-
 func (tgi *testGHClientInterface) CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error) {
 	id := int64(1)
 	res := &github.CheckRun{
-		Name: github.String(opts.Name),
-		ID:   &id,
+		Name:       github.String(opts.Name),
+		ID:         &id,
+		DetailsURL: opts.DetailsURL,
+		HeadSHA:    &opts.HeadSHA,
+		Conclusion: opts.Conclusion,
+		Status:     opts.Status,
+		Output:     opts.Output,
 	}
 	tgi.src.addGithubCall("create_check_run", nil, res, opts)
+	return res, nil
+}
+
+func (tgi *testGHClientInterface) UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error) {
+	// we never actually use the result of UpdateCheckRUn, so
+	// this can be ignored
+	res := &github.CheckRun{
+		Name: github.String(upd.Name),
+		ID:   &id,
+	}
+
+	tgi.src.addGithubCall("update_check_run", nil, res, id, upd)
+
 	return res, nil
 }
 
@@ -100,8 +107,6 @@ type githubCall struct {
 type testGHClientSrc struct {
 	t *testing.T
 
-	statusUpdates map[int64][]GithubStatus
-
 	actions map[string][]githubCall
 }
 
@@ -109,7 +114,8 @@ func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{
 	if tcs.actions == nil {
 		tcs.actions = map[string][]githubCall{}
 	}
-	tcs.actions[call] = append(tcs.actions[call], githubCall{Args: args, Err: err, Res: res})
+	ghcall := githubCall{Args: args, Err: err, Res: res}
+	tcs.actions[call] = append(tcs.actions[call], ghcall)
 }
 
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {
@@ -119,32 +125,63 @@ func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (g
 	}, nil
 }
 
-// getCheckRunStatus
-func (tcs *testGHClientSrc) getCheckRunStatus() GithubStatus {
-	var res GithubStatus
-	for _, crss := range tcs.statusUpdates {
-		for _, crs := range crss {
-			// we should fold the github status updates, appending
-			// annotations etc, to mirror github's behaviour
+// getCheckRunStatus calculates the check run status based on the
+// mechanism that github seems to use (infered by poking the API)
+// - Updates must always specify name, or it is blanked.
+// - If Output is set, all the fields are updated.
+// - Other fields are optional (with the documented behaviour of status,
+//   completed, and completedAt
+// The mock currently assumed there is only one org, repo and install
+func (tcs *testGHClientSrc) getCheckRunStatus(id int64) github.CheckRun {
+	createCalls := tcs.actions["create_check_run"]
+	updateCalls := tcs.actions["update_check_run"]
 
-			res.Status = crs.Status
-			res.Conclusion = crs.Conclusion
-			res.Text = crs.Text
-			res.DetailsURL = crs.DetailsURL
-			res.Title = crs.Title
-			res.Summary = crs.Summary
-
-			if crs.Actions != nil {
-				res.Actions = crs.Actions
-			}
-
-			res.Annotations = append(res.Annotations, crs.Annotations...)
-		}
-		// TODO: We'll just pick  random installID for now,
-		// tests should be enhanced to cater for different
-		// installs.
-		tcs.t.Logf("CheckRunStatus: %#v", res)
-		return res
+	checkRuns := map[int64]github.CheckRun{}
+	for _, call := range createCalls {
+		res := call.Res.(*github.CheckRun)
+		checkRuns[res.GetID()] = *res
 	}
+
+	res := checkRuns[id]
+	out := &github.CheckRunOutput{}
+
+	// Need to copy output
+	if res.Output != nil {
+		*out = *res.Output
+	}
+	res.Output = out
+	res.ID = nil
+
+	for _, call := range updateCalls {
+		crid := call.Args[0].(int64)
+		if crid != id {
+			continue
+		}
+
+		upd := call.Args[1].(github.UpdateCheckRunOptions)
+
+		if upd.DetailsURL != nil {
+			res.DetailsURL = upd.DetailsURL
+		}
+		if upd.HeadSHA != nil {
+			res.HeadSHA = upd.HeadSHA
+		}
+		if upd.Conclusion != nil {
+			res.Conclusion = upd.Conclusion
+		}
+		if upd.Status != nil {
+			res.Status = upd.Status
+		}
+
+		res.Name = &upd.Name
+		if upd.Output != nil {
+			res.Output.Text = upd.Output.Text
+			res.Output.Title = upd.Output.Title
+			res.Output.Summary = upd.Output.Summary
+			res.Output.Images = append(res.Output.Images, upd.Output.Images...)
+			res.Output.Annotations = append(res.Output.Annotations, upd.Output.Annotations...)
+		}
+	}
+
 	return res
 }

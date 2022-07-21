@@ -12,7 +12,7 @@ import (
 )
 
 type workflowRunner interface {
-	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, deployevent *github.DeploymentEvent) error
+	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, deployevent *github.DeploymentEvent) error
 }
 
 type pvcManager interface {
@@ -141,7 +141,6 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		event.GetDeployment().GetRef(),
 		event.GetDeployment().GetTask(),
 		nil,
-		ghClient,
 		event,
 	)
 
@@ -181,7 +180,6 @@ func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 		event.GetRef(),
 		"",
 		nil,
-		ghClient,
 		nil,
 	)
 
@@ -209,7 +207,6 @@ func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 		*event.CheckSuite.HeadBranch,
 		"",
 		event.CheckSuite.PullRequests,
-		ghClient,
 		nil,
 	)
 
@@ -267,7 +264,6 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 		event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
 		event.RequestedAction.Identifier,
 		event.GetCheckRun().GetCheckSuite().PullRequests,
-		ghClient,
 		nil,
 	)
 

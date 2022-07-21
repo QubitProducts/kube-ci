@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ type fixture struct {
 	k8sActions    []k8stesting.Action
 	wfActions     []k8stesting.Action
 	githubActions map[string][]githubCall
-	githubStatus  GithubStatus
+	githubStatus  github.CheckRun
 	// Objects from here preloaded into NewSimpleFake.
 	k8sObjects []runtime.Object
 	wfObjects  []runtime.Object
@@ -139,9 +140,11 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 		k8sI.Start(stopCh)
 	}
 
+	var err error
+	var wf *workflow.Workflow
 	switch obj := obj.(type) {
 	case *workflow.Workflow:
-		err := c.sync(obj)
+		wf, err = c.sync(obj)
 		if !expectError && err != nil {
 			f.t.Errorf("error syncing workflow: %v", err)
 		} else if expectError && err == nil {
@@ -152,8 +155,15 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 
 	compareActions("workflow actions", f.wfActions, f.wfClient.Actions(), t)
 	compareActions("kubernetes actions", f.k8sActions, f.k8sClient.Actions(), t)
+
+	crid, err := strconv.Atoi(wf.Annotations[annCheckRunID])
+	if err != nil {
+		f.t.Errorf("final workflow has invalid check-run id, %v", err)
+	}
+	compare("wrong Github Check Run status", f.githubStatus, gh.getCheckRunStatus(int64(crid)), f.t)
+
 	compareGithubActions("wrong github calls", f.githubActions, gh.actions, f.t)
-	compare("wrong Github Check Run status", f.githubStatus, gh.getCheckRunStatus(), f.t)
+
 }
 
 func compare[K any](text string, expected, actual K, t *testing.T) {
@@ -162,19 +172,28 @@ func compare[K any](text string, expected, actual K, t *testing.T) {
 	}
 }
 
+func copyGithubActions(in map[string][]githubCall) map[string][]githubCall {
+	tmp := map[string][]githubCall{}
+	for k, calls := range in {
+		// ignore update_check_run as we check that via the final check run status
+		if k == "update_check_run" {
+			continue
+		}
+
+		for j := range calls {
+			// All the github calls here are mocked, there's no point in comparing
+			// the results
+			calls[j].Res = nil
+		}
+
+		tmp[k] = calls
+	}
+	return tmp
+}
+
 func compareGithubActions(text string, want, got map[string][]githubCall, t *testing.T) {
-	// All the github calls here are mocked, there's no point in comparing
-	// the results
-	for i := range got {
-		for j := range got[i] {
-			got[i][j].Res = nil
-		}
-	}
-	for i := range want {
-		for j := range want[i] {
-			want[i][j].Res = nil
-		}
-	}
+	want = copyGithubActions(want)
+	got = copyGithubActions(got)
 
 	compare(text, want, got, t)
 }
@@ -452,23 +471,27 @@ func userAction(task string) *github.CheckRunAction {
 
 // githubStatus creates a GithubStatus that matches the output for the above workflow
 // this should really pull more info from the workflow
-func githubStatus(status, conclusion string, warnings []string, actions ...*github.CheckRunAction) GithubStatus {
+func githubStatus(status, conclusion string, warnings []string, actions ...*github.CheckRunAction) github.CheckRun {
 	text := "wf[1].release-staging(Failed): Error (exit code 2) \n"
 	parts := append(warnings, text)
 	text = strings.Join(parts, "\n")
+	want := github.CheckRun{
+		Name:       github.String("Argo Workflow"),
+		Status:     github.String(status),
+		HeadSHA:    github.String("50dbe643f76dcd92c4c935455a46687c903e1b7d"),
+		DetailsURL: github.String("http://example.com/ui/workflows/default/wf"),
 
-	return GithubStatus{
-		Status:     status,
-		Conclusion: conclusion,
-		Actions:    actions,
-		Title:      "Workflow Run (default/wf))",
-
-		DetailsURL: "http://example.com/ui/workflows/default/wf",
-		Summary:    "child 'wf-1' failed",
-		Text:       text,
-
-		Annotations: nil,
+		Output: &github.CheckRunOutput{
+			Title:       github.String("Workflow Run (default/wf))"),
+			Summary:     github.String("child 'wf-1' failed"),
+			Text:        github.String(text),
+			Annotations: nil,
+		},
 	}
+	if conclusion != "" {
+		want.Conclusion = &conclusion
+	}
+	return want
 }
 
 //lint:ignore U1000 we will need this at some point
@@ -574,7 +597,13 @@ type setupf func(f *fixture)
 
 func createCheckRunRaw(opt github.CreateCheckRunOptions) setupf {
 	return func(f *fixture) {
-		f.expectGithubCall("create_check_run", nil, opt)
+		res := &github.CheckRun{
+			Name:    &opt.Name,
+			HeadSHA: &opt.HeadSHA,
+			Status:  opt.Status,
+			Output:  opt.Output,
+		}
+		f.expectGithubCall("create_check_run", res, opt)
 	}
 }
 
@@ -719,7 +748,7 @@ func TestCreateWorkflow(t *testing.T) {
 		name         string
 		phase        workflow.WorkflowPhase
 		setup        []setupf
-		expectStatus GithubStatus
+		expectStatus github.CheckRun
 	}{
 		{
 			"normal_pending",

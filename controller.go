@@ -226,7 +226,7 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 	// Status: Complete check run, cancelled
 	status := "completed"
 	conclusion := "cancelled"
-	ghInfo.ghClient.StatusUpdate(
+	StatusUpdate(
 		ctx,
 		ghInfo,
 		GithubStatus{
@@ -531,7 +531,7 @@ func (ws *workflowSyncer) nodeURL(wf *workflow.Workflow, n workflow.NodeStatus) 
 	return u.String()
 }
 
-func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
+func (ws *workflowSyncer) sync(wf *workflow.Workflow) (*workflow.Workflow, error) {
 	var err error
 	ctx := context.Background()
 
@@ -542,23 +542,23 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 
 	wf, cont := ws.handleCheckRunResetRun(ctx, wf)
 	if !cont {
-		return nil
+		return wf, nil
 	}
 
 	info, err := githubInfoFromWorkflow(wf, ws.ghClientSrc)
 	if err != nil {
 		log.Printf("ignoring %s/%s, %v", wf.Namespace, wf.Name, err)
-		return nil
+		return wf, nil
 	}
 
 	wf, err = ws.syncDeployments(ctx, wf, info)
 	if err != nil {
-		return err
+		return wf, err
 	}
 
 	status, conclusion := completionStatus(wf)
 	if status == "" {
-		return nil
+		return wf, nil
 	}
 
 	summary := wf.Status.Message
@@ -576,7 +576,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		Text:       text,
 	}
 	// Status: Progress Update
-	info.ghClient.StatusUpdate(
+	StatusUpdate(
 		ctx,
 		info,
 		ghStatus,
@@ -586,7 +586,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) error {
 		_, err = ws.completeCheckRun(ctx, wf, info, ghStatus)
 	}
 
-	return err
+	return wf, err
 }
 
 func (ws *workflowSyncer) process() bool {
@@ -620,7 +620,7 @@ func (ws *workflowSyncer) process() bool {
 		return true
 	}
 
-	err = ws.sync(wf)
+	_, err = ws.sync(wf)
 	if err != nil {
 		log.Printf("processing event for %s/%s failed, %v", wf.Namespace, wf.Name, err)
 		runtime.HandleError(err)
@@ -728,7 +728,7 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 		return nil, fmt.Errorf("no check-run info found in restarted workflow (%s/%s)", wf.Namespace, wf.Name)
 	}
 
-	newCR, err := ghInfo.ghClient.CreateCheckRun(context.TODO(),
+	newCR, err := ghInfo.ghClient.CreateCheckRun(context.Background(),
 		github.CreateCheckRunOptions{
 			Name:    ghInfo.checkRunName,
 			HeadSHA: ghInfo.headSHA,
@@ -744,16 +744,6 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 	}
 
 	ghInfo.checkRunID = newCR.GetID()
-	// Status: initialise CheckRun info
-	ghInfo.ghClient.StatusUpdate(
-		context.Background(),
-		ghInfo,
-		GithubStatus{
-			Title:   "Workflow Setup",
-			Summary: "Creating workflow",
-			Status:  "queued",
-		},
-	)
 
 	for k := range wf.Annotations {
 		switch k {
@@ -872,7 +862,7 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 	ghStatus.Annotations = nil
 	ctx := context.Background()
 	// Status: Add actions
-	ghInfo.ghClient.StatusUpdate(
+	StatusUpdate(
 		ctx,
 		ghInfo,
 		ghStatus,
@@ -891,7 +881,7 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 		// Status: Add annotations
 		anns := allAnns[start:end]
 		ghStatus.Annotations = anns
-		ghInfo.ghClient.StatusUpdate(
+		StatusUpdate(
 			ctx,
 			ghInfo,
 			ghStatus,

@@ -1,13 +1,10 @@
 package main
 
 import (
-	"context"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-github/v32/github"
 )
@@ -81,55 +78,6 @@ func FuzzWFName(f *testing.F) {
 			}
 		}
 	})
-}
-
-//lint:ignore U1000 this will be used again
-type checkRunUpdateRecorder struct {
-	org     string
-	repo    string
-	updates []github.UpdateCheckRunOptions
-
-	now func() time.Time
-}
-
-func (crr *checkRunUpdateRecorder) UpdateCheckRun(ctx context.Context, owner, repo string, checkRunID int64, opts github.UpdateCheckRunOptions) (*github.CheckRun, *github.Response, error) {
-	crr.updates = append(crr.updates, opts)
-	return nil, nil, nil
-}
-
-func (crr *checkRunUpdateRecorder) StatusUpdate(
-	ctx context.Context,
-	info *githubInfo,
-	status GithubStatus,
-) {
-	log.Print(status.Summary)
-	opts := github.UpdateCheckRunOptions{
-		Name:   defaultCheckRunName,
-		Status: &status.Status,
-		Output: &github.CheckRunOutput{
-			Title:   &status.Title,
-			Summary: &status.Summary,
-		},
-	}
-
-	opts.Actions = status.Actions
-
-	if status.Conclusion != "" {
-		opts.Conclusion = &status.Conclusion
-		opts.CompletedAt = &github.Timestamp{
-			Time: crr.now(),
-		}
-	}
-	_, _, err := crr.UpdateCheckRun(
-		ctx,
-		crr.org,
-		crr.repo,
-		info.checkRunID,
-		opts)
-
-	if err != nil {
-		log.Printf("Update of aborted check run failed, %v", err)
-	}
 }
 
 func TestPolicy(t *testing.T) {

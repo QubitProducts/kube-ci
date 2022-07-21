@@ -48,62 +48,58 @@ func (r *repoClient) UpdateCheckRun(ctx context.Context, id int64, upd github.Up
 	return cr, err
 }
 
-func (r *repoClient) StatusUpdate(
+func StatusUpdate(
 	ctx context.Context,
 	info *githubInfo,
 	status GithubStatus,
 ) {
-	log.Print(status.Summary)
-	if info.checkRunID != 0 {
-		opts := github.UpdateCheckRunOptions{
-			Name: info.checkRunName,
+	opts := github.UpdateCheckRunOptions{
+		// Mandatory on update
+		Name: info.checkRunName,
+	}
+
+	// These are optional
+	if status.DetailsURL != "" {
+		opts.DetailsURL = &status.DetailsURL
+	}
+
+	if info.headSHA != "" {
+		opts.HeadSHA = &info.headSHA
+	}
+
+	if status.Status != "" {
+		opts.Status = &status.Status
+	}
+
+	if status.Conclusion != "" {
+		opts.Conclusion = &status.Conclusion
+		opts.CompletedAt = &github.Timestamp{
+			Time: time.Now(),
 		}
+	}
 
-		if status.Status != "" {
-			opts.Status = &status.Status
+	// If any of these are set we update the output,
+	// so all must be set
+	if status.Title != "" ||
+		status.Summary != "" ||
+		status.Text != "" {
+		opts.Output = &github.CheckRunOutput{
+			Title:       &status.Title,
+			Summary:     &status.Summary,
+			Text:        &status.Text,
+			Annotations: status.Annotations,
 		}
+	}
 
-		if status.Title != "" || status.Summary != "" {
-			opts.Output = &github.CheckRunOutput{
-				Title:   &status.Title,
-				Summary: &status.Summary,
-			}
-		}
+	opts.Actions = status.Actions
 
-		if status.DetailsURL != "" {
-			opts.DetailsURL = &status.DetailsURL
-		}
+	_, err := info.ghClient.UpdateCheckRun(
+		ctx,
+		info.checkRunID,
+		opts)
 
-		if info.headSHA != "" {
-			opts.HeadSHA = &info.headSHA
-		}
-
-		if status.Conclusion != "" {
-			opts.Conclusion = &status.Conclusion
-			opts.CompletedAt = &github.Timestamp{
-				Time: time.Now(),
-			}
-		}
-
-		opts.Actions = status.Actions
-
-		if len(status.Annotations) != 0 {
-			if opts.Output == nil {
-				opts.Output = &github.CheckRunOutput{}
-			}
-			opts.Output.Annotations = status.Annotations
-		}
-
-		_, _, err := r.client.Checks.UpdateCheckRun(
-			ctx,
-			r.org,
-			r.repo,
-			info.checkRunID,
-			opts)
-
-		if err != nil {
-			log.Printf("Update of aborted check run failed, %v", err)
-		}
+	if err != nil {
+		log.Printf("Update of aborted check run failed, %v", err)
 	}
 }
 

@@ -85,17 +85,6 @@ type GithubStatus struct {
 	Annotations []*github.CheckRunAnnotation
 }
 
-// StatusUpdater in an interface for informing something about the an update on
-// the progress of a workflow run. The crid arg shoul dbe factored out so this
-// closes over amore abstract concept.
-type StatusUpdater interface {
-	StatusUpdate(
-		ctx context.Context,
-		info *githubInfo,
-		status GithubStatus,
-	)
-}
-
 func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 	ctx := context.Background()
 	ls := labels.Set(
@@ -397,12 +386,12 @@ type wfGHClient interface {
 	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
 }
 
-func checkRunError(ctx context.Context, info *githubInfo, err error, title string, upd StatusUpdater) {
+func checkRunError(ctx context.Context, info *githubInfo, err error, title string) {
 	if err == nil {
 		return
 	}
 
-	upd.StatusUpdate(
+	StatusUpdate(
 		ctx,
 		info,
 		GithubStatus{
@@ -477,7 +466,7 @@ func (ws *workflowSyncer) lintWorkflow(wf *workflow.Workflow) (*workflow.Workflo
 	return nil, nil
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, sha, refType, ref, entrypoint string, prs []*github.PullRequest, updater StatusUpdater, de *github.DeploymentEvent) error {
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, sha, refType, ref, entrypoint string, prs []*github.PullRequest, de *github.DeploymentEvent) error {
 	org := repo.GetOwner().GetLogin()
 	name := repo.GetName()
 	wf, wfErr := getWorkflow(
@@ -543,7 +532,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	}
 
 	// Status: initialise CheckRun info
-	updater.StatusUpdate(
+	StatusUpdate(
 		ctx,
 		info,
 		GithubStatus{
@@ -556,21 +545,21 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 
 	if wfErr != nil {
 		msg := fmt.Errorf("unable to parse workflow, %v", wfErr)
-		checkRunError(ctx, info, msg, *title, updater)
+		checkRunError(ctx, info, msg, *title)
 		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, wfErr)
 		return nil
 	}
 
 	if epErr != nil {
 		msg := fmt.Errorf("error finding workflow endpoint, %v", epErr)
-		checkRunError(ctx, info, msg, *title, updater)
+		checkRunError(ctx, info, msg, *title)
 		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, epErr)
 		return nil
 	}
 
 	if err := ws.policy(repo, ref, *title, prs); err != nil {
 		// Status: error to checkrunrun info failed - policy error
-		checkRunError(ctx, info, fmt.Errorf(err.message), *title, updater)
+		checkRunError(ctx, info, fmt.Errorf(err.message), *title)
 		log.Printf(err.log)
 		return nil
 	}
@@ -603,13 +592,13 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	)
 	if err != nil {
 		// Status: error to checkrun info failed - pvc create error
-		checkRunError(ctx, info, fmt.Errorf("creation of cache volume failed, %v", err), *title, updater)
+		checkRunError(ctx, info, fmt.Errorf("creation of cache volume failed, %v", err), *title)
 		return err
 	}
 
 	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
-		checkRunError(ctx, info, fmt.Errorf("argo workflow creation failed, %v", err), *title, updater)
+		checkRunError(ctx, info, fmt.Errorf("argo workflow creation failed, %v", err), *title)
 
 		return fmt.Errorf("workflow creation failed, %w", err)
 	}
