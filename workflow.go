@@ -384,6 +384,7 @@ type wfGHClient interface {
 	baseGHClient
 	contentDownloader
 	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
+	ghClientInterface
 }
 
 func checkRunError(ctx context.Context, info *githubInfo, err error, title string) {
@@ -529,6 +530,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 
 		checkRunID:   cr.GetID(),
 		checkRunName: crName,
+		ghClient:     ghClient,
 	}
 
 	// Status: initialise CheckRun info
