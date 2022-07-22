@@ -670,9 +670,10 @@ func createsDeploymentStatus() setupf {
 func createsCheckRun(status, summary string) setupf {
 	return createCheckRunRaw(
 		github.CreateCheckRunOptions{
-			Name:    "Argo Workflow",
-			HeadSHA: "50dbe643f76dcd92c4c935455a46687c903e1b7d",
-			Status:  github.String(status),
+			Name:       "Argo Workflow",
+			HeadSHA:    "50dbe643f76dcd92c4c935455a46687c903e1b7d",
+			ExternalID: github.String("build"),
+			Status:     github.String(status),
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Workflow Setup"),
 				Summary: github.String(summary),

@@ -730,9 +730,10 @@ func (ws *workflowSyncer) resetCheckRun(ctx context.Context, wf *workflow.Workfl
 
 	newCR, err := ghInfo.ghClient.CreateCheckRun(context.Background(),
 		github.CreateCheckRunOptions{
-			Name:    ghInfo.checkRunName,
-			HeadSHA: ghInfo.headSHA,
-			Status:  defaultCheckRunStatus,
+			Name:       ghInfo.checkRunName,
+			HeadSHA:    ghInfo.headSHA,
+			ExternalID: github.String(wf.Spec.Entrypoint),
+			Status:     defaultCheckRunStatus,
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Workflow Setup"),
 				Summary: github.String("Creating workflow"),
