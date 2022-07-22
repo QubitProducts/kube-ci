@@ -790,11 +790,6 @@ func usesCacheVolume(wf *workflow.Workflow) bool {
 }
 
 func clearCacheAction(wf *workflow.Workflow) *github.CheckRunAction {
-	if wf.Status.Phase == workflow.WorkflowFailed ||
-		wf.Status.Phase == workflow.WorkflowError {
-		return nil
-	}
-
 	if !usesCacheVolume(wf) {
 		return nil
 	}
