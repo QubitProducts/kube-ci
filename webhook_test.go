@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 )
 
 func (f *fixture) newWebhook() *hookHandler {

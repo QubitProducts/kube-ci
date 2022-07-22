@@ -13,7 +13,7 @@ import (
 	workflowfake "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned/fake"
 	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -162,7 +162,15 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	if err != nil {
 		f.t.Errorf("final workflow has invalid check-run id, %v", err)
 	}
+
 	status, actions := gh.getCheckRunStatus(int64(crid))
+	// Because most of the creates are don't from the webhooks, not the
+	// controller, we don't see them in the mock calls, so we have to
+	// stub it out here (except in the cases where we do do the create)
+	if status.HeadSHA == nil {
+		status.HeadSHA = github.String("50dbe643f76dcd92c4c935455a46687c903e1b7d")
+	}
+
 	compare("wrong Github Check Run status", f.githubCheckRunStatus, status, f.t)
 	compare("wrong check-run action buttons", f.githubCheckRunActions, actions, f.t)
 

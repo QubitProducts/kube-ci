@@ -12,7 +12,7 @@ import (
 	"time"
 
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )

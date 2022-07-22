@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 )
 
 var rfc1035Re = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)

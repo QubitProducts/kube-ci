@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 )
 
 //lint:ignore U1000 this will be used once we need to mock the GH client
@@ -169,9 +169,6 @@ func (tcs *testGHClientSrc) getCheckRunStatus(id int64) (github.CheckRun, []*git
 
 		if upd.DetailsURL != nil {
 			res.DetailsURL = upd.DetailsURL
-		}
-		if upd.HeadSHA != nil {
-			res.HeadSHA = upd.HeadSHA
 		}
 		if upd.Conclusion != nil {
 			res.Conclusion = upd.Conclusion

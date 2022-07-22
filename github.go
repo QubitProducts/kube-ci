@@ -8,7 +8,7 @@ import (
 	"regexp"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 )
 
 type ghClientInterface interface {

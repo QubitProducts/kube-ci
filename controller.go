@@ -34,7 +34,7 @@ import (
 	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
 	listers "github.com/argoproj/argo-workflows/v3/pkg/client/listers/workflow/v1alpha1"
 
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"

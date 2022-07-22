@@ -11,7 +11,7 @@ import (
 	"time"
 
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v45/github"
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
@@ -61,10 +61,6 @@ func StatusUpdate(
 	// These are optional
 	if status.DetailsURL != "" {
 		opts.DetailsURL = &status.DetailsURL
-	}
-
-	if info.headSHA != "" {
-		opts.HeadSHA = &info.headSHA
 	}
 
 	if status.Status != "" {
@@ -143,13 +139,14 @@ func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
 }
 
 func (r *repoClient) DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
-	return r.client.Repositories.DownloadContents(
+	rc, _, err := r.client.Repositories.DownloadContents(
 		ctx,
 		r.org,
 		r.repo,
 		filepath,
 		opts,
 	)
+	return rc, err
 }
 
 func (r *repoClient) GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
@@ -169,7 +166,7 @@ func (r *repoClient) CreateFile(ctx context.Context, filepath string, opts *gith
 }
 
 func (r *repoClient) GetBranch(ctx context.Context, branch string) (*github.Branch, error) {
-	gbranch, _, err := r.client.Repositories.GetBranch(ctx, r.org, r.repo, branch)
+	gbranch, _, err := r.client.Repositories.GetBranch(ctx, r.org, r.repo, branch, true)
 	return gbranch, err
 }
 
