@@ -690,6 +690,7 @@ func createsNextCheckRun(task string) setupf {
 			Conclusion: github.String("action_required"),
 			ExternalID: github.String(task),
 			Output: &github.CheckRunOutput{
+				Title:   github.String("Manual Step"),
 				Summary: github.String("Use the button above to manually trigger this workflow template"),
 			},
 			Actions: []*github.CheckRunAction{

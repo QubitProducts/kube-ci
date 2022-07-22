@@ -842,7 +842,7 @@ func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *work
 	}
 
 	for _, task := range nextTasks {
-		ghInfo.ghClient.CreateCheckRun(ctx, github.CreateCheckRunOptions{
+		_, err := ghInfo.ghClient.CreateCheckRun(ctx, github.CreateCheckRunOptions{
 			Name:       fmt.Sprintf("Workflow - %s", task),
 			HeadSHA:    ghInfo.headSHA,
 			Conclusion: github.String("action_required"),
@@ -853,9 +853,13 @@ func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *work
 				Identifier:  "run",
 			}},
 			Output: &github.CheckRunOutput{
+				Title:   github.String("Manual Step"),
 				Summary: github.String("Use the button above to manually trigger this workflow template"),
 			},
 		})
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("failed create check-run, %v", err))
+		}
 	}
 
 	return warnings
