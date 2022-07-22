@@ -251,21 +251,24 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 		return http.StatusBadRequest, err.Error()
 	}
 
-	if event.RequestedAction.Identifier == "clearCache" ||
-		event.RequestedAction.Identifier == "clearCacheBranch" {
+	id := event.RequestedAction.Identifier
+	switch id {
+	case "clearCacheBranch", "clearCache":
 		return h.webhookCheckRunRequestActionClearCache(ctx, event)
+	case "run":
+		err = h.runner.runWorkflow(ctx,
+			ghClient,
+			event.GetRepo(),
+			event.GetCheckRun().GetHeadSHA(),
+			"branch",
+			event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
+			event.GetCheckRun().GetExternalID(),
+			event.GetCheckRun().GetCheckSuite().PullRequests,
+			nil,
+		)
+	default:
+		return http.StatusBadRequest, "unrecognized task"
 	}
-
-	err = h.runner.runWorkflow(ctx,
-		ghClient,
-		event.GetRepo(),
-		event.GetCheckRun().GetHeadSHA(),
-		"branch",
-		event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
-		event.RequestedAction.Identifier,
-		event.GetCheckRun().GetCheckSuite().PullRequests,
-		nil,
-	)
 
 	if err != nil {
 		return http.StatusBadRequest, err.Error()

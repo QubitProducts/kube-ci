@@ -816,42 +816,60 @@ func (ws *workflowSyncer) buttonsForWorkflow(wf *workflow.Workflow) ([]*github.C
 		actions = append(actions, action)
 	}
 
-	if wf.Status.Phase == workflow.WorkflowSucceeded {
-		for _, t := range wf.Spec.Templates {
-			if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
-				if len(t.Name) > 20 {
-					warnings = append(warnings, fmt.Sprintf("Action button %s dropped, only 20 chars permitted", t.Name))
-					continue
-				}
-				actions = append(actions, &github.CheckRunAction{
-					Label:       t.Name,
-					Description: fmt.Sprintf("Run the %s template", t.Name),
-					Identifier:  t.Name,
-				})
-			}
-		}
-	}
-
-	maxButtons := 3
-	if len(actions) > maxButtons {
-		dropped := []string{}
-		for _, d := range actions[maxButtons:] {
-			dropped = append(dropped, d.Label)
-		}
-		actions = actions[0:maxButtons]
-
-		warn := fmt.Sprintf("Action buttons dropped, only 3 are permitted (%s)", strings.Join(dropped, ","))
-		warnings = append(warnings, warn)
-	}
 	return actions, warnings
 }
 
-func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *githubInfo, ghStatus GithubStatus) error {
+func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *workflow.Workflow, ghInfo *githubInfo) []string {
+	var warnings []string
+
+	var nextTasks []string
+	for _, t := range wf.Spec.Templates {
+		if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
+			if len(t.Name) > 20 {
+				warnings = append(warnings, fmt.Sprintf("Action button %s dropped, only 20 chars permitted", t.Name))
+				continue
+			}
+			nextTasks = append(nextTasks, t.Name)
+		}
+	}
+
+	// if we are already one of the valid next tasks, don't create next check runs.
+	for _, task := range nextTasks {
+		if task == wf.Spec.Entrypoint {
+			return nil
+		}
+	}
+
+	for _, task := range nextTasks {
+		ghInfo.ghClient.CreateCheckRun(ctx, github.CreateCheckRunOptions{
+			Name:       fmt.Sprintf("Workflow - %s", task),
+			HeadSHA:    ghInfo.headSHA,
+			Conclusion: github.String("action_required"),
+			ExternalID: github.String(task),
+			Actions: []*github.CheckRunAction{{
+				Label:       "Run",
+				Description: "run this workflow template manually",
+				Identifier:  "run",
+			}},
+			Output: &github.CheckRunOutput{
+				Summary: github.String("Use the button above to manually trigger this workflow template"),
+			},
+		})
+	}
+
+	return warnings
+}
+
+func (ws *workflowSyncer) ghCompleteCheckRun(ctx context.Context, wf *workflow.Workflow, ghInfo *githubInfo, ghStatus GithubStatus) error {
 	var err error
 	var warnings []string
 
 	allAnns := ghStatus.Annotations
 	ghStatus.Actions, warnings = ws.buttonsForWorkflow(wf)
+
+	if wf.Status.Phase == workflow.WorkflowSucceeded {
+		warnings = append(warnings, ws.nextCheckRunsForWorkflow(ctx, wf, ghInfo)...)
+	}
 
 	output := ghStatus.Text
 	for _, w := range warnings {
@@ -860,7 +878,6 @@ func (ws *workflowSyncer) ghCompleteCheckRun(wf *workflow.Workflow, ghInfo *gith
 	ghStatus.Text = output
 
 	ghStatus.Annotations = nil
-	ctx := context.Background()
 	// Status: Add actions
 	StatusUpdate(
 		ctx,
@@ -918,7 +935,7 @@ func (ws *workflowSyncer) completeCheckRun(ctx context.Context, wf *workflow.Wor
 	}
 
 	ghStatus.Annotations = allAnns
-	err := ws.ghCompleteCheckRun(wf, ghInfo, ghStatus)
+	err := ws.ghCompleteCheckRun(ctx, wf, ghInfo, ghStatus)
 	if err != nil {
 		return nil, fmt.Errorf("completing github check-run failed, %w", err)
 	}

@@ -105,15 +105,6 @@ func (f *fixture) newController(config Config, t *testing.T) (*workflowSyncer, i
 	return c, i, k8sI, clients
 }
 
-func (f *fixture) run(obj interface{}, t *testing.T) {
-	f.runController(obj, true, false, t)
-}
-
-//lint:ignore U1000 we will need this at some point
-func (f *fixture) runExpectError(obj interface{}, t *testing.T) {
-	f.runController(obj, true, true, t)
-}
-
 func compareActions(text string, want, got []k8stesting.Action, t *testing.T) {
 	actions := filterInformerActions(got)
 	if len(want) > len(actions) {
@@ -131,6 +122,15 @@ func compareActions(text string, want, got []k8stesting.Action, t *testing.T) {
 		expectedAction := want[i]
 		checkAction(expectedAction, action, t)
 	}
+}
+
+func (f *fixture) run(obj interface{}, t *testing.T) {
+	f.runController(obj, true, false, t)
+}
+
+//lint:ignore U1000 we will need this at some point
+func (f *fixture) runExpectError(obj interface{}, t *testing.T) {
+	f.runController(obj, true, true, t)
 }
 
 func (f *fixture) runController(obj interface{}, startInformers bool, expectError bool, t *testing.T) {
@@ -167,7 +167,6 @@ func (f *fixture) runController(obj interface{}, startInformers bool, expectErro
 	compare("wrong check-run action buttons", f.githubCheckRunActions, actions, f.t)
 
 	compareGithubActions("wrong github calls", f.githubCalls, gh.calls, f.t)
-
 }
 
 func compare[K any](text string, expected, actual K, t *testing.T) {
@@ -359,10 +358,6 @@ spec:
         name: release-staging
         template: release
   - name: very-long-action-button-name
-  - name: too-many-btns-1
-  - name: too-many-btns-2
-  - name: too-many-btns-3
-  - name: too-many-bton-4-drop
   - name: release
     container:
       command:
@@ -686,6 +681,27 @@ func createsCheckRun(status, summary string) setupf {
 	)
 }
 
+func createsNextCheckRun(task string) setupf {
+	return createCheckRunRaw(
+		github.CreateCheckRunOptions{
+			Name:       "Workflow - " + task,
+			HeadSHA:    "50dbe643f76dcd92c4c935455a46687c903e1b7d",
+			Conclusion: github.String("action_required"),
+			ExternalID: github.String(task),
+			Output: &github.CheckRunOutput{
+				Summary: github.String("Use the button above to manually trigger this workflow template"),
+			},
+			Actions: []*github.CheckRunAction{
+				{
+					Label:       "Run",
+					Description: "run this workflow template manually",
+					Identifier:  "run",
+				},
+			},
+		},
+	)
+}
+
 func updatesCheckRunAnnotations() setupf {
 	return func(f *fixture) {
 		f.expectCheckRunAnnotationsUpdate(f.wf)
@@ -813,7 +829,8 @@ func TestCreateWorkflow(t *testing.T) {
 				),
 				updatesCheckRunAnnotations(),
 				enableUserActions("^release-staging$"),
-				expectCheckRunActions(volumeAction("project"), userAction("release-staging")),
+				expectCheckRunActions(volumeAction("project")),
+				createsNextCheckRun("release-staging"),
 			},
 			githubStatus("completed", "success", nil),
 		},
@@ -832,23 +849,6 @@ func TestCreateWorkflow(t *testing.T) {
 				"completed",
 				"success",
 				[]string{"**WARNING:** Action button very-long-action-button-name dropped, only 20 chars permitted"},
-			),
-		},
-		{
-			"normal_succeeded_with_too many _action_buttons",
-			workflow.WorkflowSucceeded,
-			[]setupf{
-				updatesCheckRunAnnotations(),
-				enableUserActions("^too-many-"),
-				expectCheckRunActions(
-					userAction("too-many-btns-1"),
-					userAction("too-many-btns-2"),
-					userAction("too-many-btns-3")),
-			},
-			githubStatus(
-				"completed",
-				"success",
-				[]string{"**WARNING:** Action buttons dropped, only 3 are permitted (too-many-bton-4-drop)"},
 			),
 		},
 		{
