@@ -850,7 +850,7 @@ func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *work
 				},
 				{
 					Label:       "Skip",
-					Description: "mark this check as complete, but do not run the task",
+					Description: "mark as complete without running",
 					Identifier:  "skip",
 				},
 			},
