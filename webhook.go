@@ -274,6 +274,7 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 			ctx,
 			event.GetCheckRun().GetID(),
 			github.UpdateCheckRunOptions{
+				Name:       event.GetCheckRun().GetName(),
 				Conclusion: github.String("neutral"),
 				Output: &github.CheckRunOutput{
 					Title:   github.String("Manual Step - Skipped"),
