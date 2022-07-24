@@ -699,6 +699,11 @@ func createsNextCheckRun(task string) setupf {
 					Description: "run this workflow template manually",
 					Identifier:  "run",
 				},
+				{
+					Label:       "Skip",
+					Description: "mark this check as complete, but do not run the task",
+					Identifier:  "skip",
+				},
 			},
 		},
 	)

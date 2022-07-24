@@ -131,8 +131,6 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 	}
 
 	// Run a workflow to perform the deploy
-	// TODO, we need to pass in the extra environment
-	// parameter, and the deployment ID
 	err = h.runner.runWorkflow(ctx,
 		ghClient,
 		event.GetRepo(),
@@ -143,6 +141,9 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		nil,
 		event,
 	)
+	if err != nil {
+		return http.StatusBadRequest, fmt.Sprintf("error when running workflow, %v", err)
+	}
 
 	return http.StatusOK, ""
 }
@@ -265,6 +266,20 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 			event.GetCheckRun().GetExternalID(),
 			event.GetCheckRun().GetCheckSuite().PullRequests,
 			nil,
+		)
+	case "skip":
+		user := event.GetSender().GetLogin()
+		summary := fmt.Sprintf("User %s skipped this manual action", user)
+		ghClient.UpdateCheckRun(
+			ctx,
+			event.GetCheckRun().GetID(),
+			github.UpdateCheckRunOptions{
+				Conclusion: github.String("neutral"),
+				Output: &github.CheckRunOutput{
+					Title:   github.String("Manual Step - Skipped"),
+					Summary: github.String(summary),
+				},
+			},
 		)
 	default:
 		return http.StatusBadRequest, "unrecognized task"

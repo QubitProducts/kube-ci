@@ -842,11 +842,18 @@ func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *work
 			HeadSHA:    ghInfo.headSHA,
 			Conclusion: github.String("action_required"),
 			ExternalID: github.String(task),
-			Actions: []*github.CheckRunAction{{
-				Label:       "Run",
-				Description: "run this workflow template manually",
-				Identifier:  "run",
-			}},
+			Actions: []*github.CheckRunAction{
+				{
+					Label:       "Run",
+					Description: "run this workflow template manually",
+					Identifier:  "run",
+				},
+				{
+					Label:       "Skip",
+					Description: "mark this check as complete, but do not run the task",
+					Identifier:  "skip",
+				},
+			},
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Manual Step"),
 				Summary: github.String("Use the button above to manually trigger this workflow template"),
