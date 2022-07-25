@@ -1,19 +1,47 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/google/go-github/v45/github"
 )
 
-//lint:ignore U1000 this will be used once we need to mock the GH client
-type testGHClientInterface struct {
-	src *testGHClientSrc
+type repoContentKey struct {
+	org  string
+	repo string
+	ref  string
+}
 
+type repoFiles map[string]string
+type repoContent map[repoContentKey]repoFiles
+
+func (c *repoContent) add(org, repo, ref, fileName, fileContent string) {
+	key := repoContentKey{
+		org:  org,
+		repo: repo,
+		ref:  ref,
+	}
+	cnt := (*c)[key]
+	if cnt == nil {
+		cnt = repoFiles{}
+	}
+	cnt[fileName] = fileContent
+	(*c)[key] = cnt
+}
+
+type testGHClientInterface struct {
 	instID int
-	t      *testing.T
+	org    string
+	repo   string
+
+	src *testGHClientSrc
+	t   *testing.T
 }
 
 func (tgi *testGHClientInterface) GetInstallID() int {
@@ -74,16 +102,68 @@ func (tgi *testGHClientInterface) IsMember(ctx context.Context, user string) (bo
 	panic("not implemented") // TODO: Implement
 }
 
-func (tgi *testGHClientInterface) DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
-	panic("not implemented") // TODO: Implement
+func (tgi *testGHClientInterface) DownloadRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
+	return tgi.DownloadContents(ctx, tgi.org, tgi.repo, filepath, opts)
+}
+
+func (tgi *testGHClientInterface) DownloadContents(ctx context.Context, org, repo, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
+	key := repoContentKey{
+		org:  org,
+		repo: repo,
+		ref:  opts.Ref,
+	}
+	repoCnt, ok := tgi.src.content[key]
+	if !ok {
+		err := fmt.Errorf("can't find ref %s/%s %s, %w", key.org, key.repo, key.ref, os.ErrNotExist)
+		tgi.src.addGithubCall("get_contents", err, nil, key.org, key.repo, opts)
+		return nil, err
+	}
+
+	str, ok := repoCnt[filepath]
+	if !ok {
+		err := fmt.Errorf("file not in org/repo, %w", os.ErrNotExist)
+		tgi.src.addGithubCall("get_contents", err, nil, key.org, key.repo, opts)
+		return nil, err
+	}
+
+	res := ioutil.NopCloser(bytes.NewBufferString(str))
+	tgi.src.addGithubCall("get_contents", nil, res, key.org, key.repo, opts)
+	return res, nil
 }
 
 func (tgi *testGHClientInterface) CreateFile(ctx context.Context, filepath string, opts *github.RepositoryContentFileOptions) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func (tgi *testGHClientInterface) GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
-	panic("not implemented") // TODO: Implement
+func (tgi *testGHClientInterface) GetRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
+	key := repoContentKey{
+		org:  tgi.org,
+		repo: tgi.repo,
+		ref:  opts.Ref,
+	}
+	repoCnt, ok := tgi.src.content[key]
+	if !ok {
+		err := fmt.Errorf("could not find file, %w", os.ErrNotExist)
+		tgi.src.addGithubCall("get_contents", err, nil, tgi.org, tgi.repo, opts)
+		return nil, err
+	}
+
+	str, ok := repoCnt[filepath]
+	if !ok {
+		err := fmt.Errorf("could not find file, %w", os.ErrNotExist)
+		tgi.src.addGithubCall("get_contents", err, nil, tgi.org, tgi.repo, opts)
+		return nil, err
+	}
+
+	res := []*github.RepositoryContent{
+		{
+			Name:    github.String(filepath),
+			Content: github.String(str),
+		},
+	}
+	tgi.src.addGithubCall("get_contents", nil, res, tgi.org, tgi.repo, opts)
+
+	return res, nil
 }
 
 func (tgi *testGHClientInterface) GetBranch(ctx context.Context, branch string) (*github.Branch, error) {
@@ -107,7 +187,8 @@ type githubCall struct {
 type testGHClientSrc struct {
 	t *testing.T
 
-	calls map[string][]githubCall
+	content repoContent
+	calls   map[string][]githubCall
 }
 
 func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{}, args ...interface{}) {
@@ -121,6 +202,8 @@ func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{
 func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (ghClientInterface, error) {
 	return &testGHClientInterface{
 		instID: 1234,
+		org:    org,
+		repo:   repo,
 		src:    tcs,
 	}, nil
 }

@@ -3,10 +3,8 @@ package main
 import (
 	"net/http"
 	"net/url"
-	"os"
 	"testing"
 
-	"github.com/google/go-github/v45/github"
 	starlibjson "github.com/qri-io/starlib/encoding/json"
 	starlibyaml "github.com/qri-io/starlib/encoding/yaml"
 	starlibre "github.com/qri-io/starlib/re"
@@ -19,14 +17,6 @@ type userRT struct {
 	next  http.RoundTripper
 }
 
-func (u *userRT) RoundTrip(req *http.Request) (*http.Response, error) {
-	nreq := req.Clone(req.Context())
-	nreq.SetBasicAuth(u.user, u.token)
-
-	resp, err := u.next.RoundTrip(nreq)
-	return resp, err
-}
-
 func TestStarlark(t *testing.T) {
 	yaml, _ := starlibyaml.LoadModule()
 	re, _ := starlibre.LoadModule()
@@ -37,18 +27,27 @@ func TestStarlark(t *testing.T) {
 		"/" + starlibre.ModuleName:   re,
 	}
 
-	httpClient := http.DefaultClient
-	ut := &userRT{
-		user:  "tcolgate",
-		token: os.Getenv("GITHUB_TOKEN"),
-		next:  http.DefaultTransport,
+	clients := &testGHClientSrc{t: t}
+	client, err := clients.getClient("myorg", 1234, "myrepo")
+	if err != nil {
+		t.Fatal(err)
 	}
-	httpClient.Transport = ut
 
-	gh := github.NewClient(httpClient)
+	clients.content = repoContent{}
+	clients.content.add("myorg", "myrepo2", "testpr", "/testdata/thing.star", `data = ["things", "here"]`)
+
+	testStar := `
+load("//myrepo2.myorg/testdata/thing.star?ref=testpr", "data")
+working = data
+`
+	clients.content.add("myorg", "myrepo", "mypr", "/.kube-ci/ci.yaml", ``)
+	clients.content.add("myorg", "myrepo", "mypr", "/.kube-ci/test.star", testStar)
+	clients.content.add("myorg", "myrepo", "mypr", "/.kube-ci/test.json", `{"hello": "world"}`)
+
+	t.Logf("stuff: %#v", clients.content)
+
 	src := &modSrc{
-		http:    httpClient,
-		client:  gh.Repositories,
+		client:  client,
 		builtIn: builtins,
 	}
 
@@ -67,7 +66,7 @@ func TestStarlark(t *testing.T) {
 		Print: func(_ *starlark.Thread, msg string) { t.Logf(msg) },
 		Load:  loader,
 	}
-	u, _ := url.Parse("github://kube-ci.QubitProducts/testdata/?ref=starlark")
+	u, _ := url.Parse("github://myrepo.myorg/.kube-ci/ci.star?ref=mypr")
 	setCWU(thread, u)
 
 	const script = `

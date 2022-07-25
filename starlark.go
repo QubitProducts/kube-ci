@@ -5,8 +5,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -20,7 +22,7 @@ import (
 )
 
 type githubContentGetter interface {
-	GetContents(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (fileContent *github.RepositoryContent, directoryContent []*github.RepositoryContent, resp *github.Response, err error)
+	DownloadContents(ctx context.Context, org, repo, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
 }
 
 type httpDoer interface {
@@ -130,6 +132,7 @@ func parseModURL(base *url.URL, name string) (*url.URL, error) {
 			if len(strings.Split(u.Host, ".")) == 1 {
 				u.Host = fmt.Sprintf("%s.%s", u.Host, defaultOrg)
 			}
+
 			if qs.Get("ref") == "" {
 				qs.Set("ref", defaultRef)
 				if u.Host != base.Host {
@@ -186,7 +189,7 @@ func (gh *modSrc) openGithubFile(thread *starlark.Thread, url *url.URL) (starlar
 	repo, org, _ := strings.Cut(url.Host, ".")
 	ref := url.Query().Get("ref")
 
-	f, _, _, err := gh.client.GetContents(
+	reader, err := gh.client.DownloadContents(
 		ctx,
 		org,
 		repo,
@@ -199,11 +202,10 @@ func (gh *modSrc) openGithubFile(thread *starlark.Thread, url *url.URL) (starlar
 		return emptyStr, err
 	}
 
-	bs, err := f.GetContent()
-	if err != nil {
-		return emptyStr, err
-	}
-	return starlark.String(bs), nil
+	buf := bytes.NewBuffer(nil)
+	io.Copy(buf, reader)
+
+	return starlark.String(buf.String()), nil
 }
 
 func (gh *modSrc) openGithub(thread *starlark.Thread, url *url.URL) (starlark.StringDict, error) {
@@ -285,9 +287,9 @@ func resolveModuleName(thread *starlark.Thread, module string) *url.URL {
 	return nwu
 }
 
-func (c *modCache) doLoad(_ *starlark.Thread, cc *cycleChecker, module *url.URL) (starlark.StringDict, error) {
+func (c *modCache) doLoad(_ *starlark.Thread, cc *cycleChecker, modurl *url.URL) (starlark.StringDict, error) {
 	thread := &starlark.Thread{
-		Name:  "exec " + module.String(),
+		Name:  "exec " + modurl.String(),
 		Print: c.starLog,
 		Load: func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
 			modURL := resolveModuleName(thread, module)
@@ -295,10 +297,8 @@ func (c *modCache) doLoad(_ *starlark.Thread, cc *cycleChecker, module *url.URL)
 		},
 	}
 
-	// we should update the current working url
-	setCWU(thread, module)
-
-	mod, err := c.src.ModOpen(thread, module.String())
+	setCWU(thread, modurl)
+	mod, err := c.src.ModOpen(thread, modurl.String())
 	if err != nil {
 		return nil, err
 	}

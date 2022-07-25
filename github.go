@@ -19,9 +19,10 @@ type ghClientInterface interface {
 	CreateDeployment(ctx context.Context, req *github.DeploymentRequest) (*github.Deployment, error)
 	CreateDeploymentStatus(ctx context.Context, id int64, req *github.DeploymentStatusRequest) (*github.DeploymentStatus, error)
 	IsMember(ctx context.Context, user string) (bool, error)
-	DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
+	DownloadRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
+	DownloadContents(ctx context.Context, org, repo, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
 	CreateFile(ctx context.Context, filepath string, opts *github.RepositoryContentFileOptions) error
-	GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error)
+	GetRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error)
 	GetBranch(ctx context.Context, branch string) (*github.Branch, error)
 	GetPullRequest(ctx context.Context, prid int) (*github.PullRequest, error)
 	CreateIssueComment(ctx context.Context, issueID int, opts *github.IssueComment) error

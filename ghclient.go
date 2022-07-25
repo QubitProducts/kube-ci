@@ -138,18 +138,28 @@ func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
 	return ok, err
 }
 
-func (r *repoClient) DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
-	rc, _, err := r.client.Repositories.DownloadContents(
+func (r *repoClient) DownloadRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
+	return r.DownloadContents(
 		ctx,
 		r.org,
 		r.repo,
 		filepath,
 		opts,
 	)
+}
+
+func (r *repoClient) DownloadContents(ctx context.Context, org, repo, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
+	rc, _, err := r.client.Repositories.DownloadContents(
+		ctx,
+		org,
+		repo,
+		filepath,
+		opts,
+	)
 	return rc, err
 }
 
-func (r *repoClient) GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
+func (r *repoClient) GetRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
 	_, files, _, err := r.client.Repositories.GetContents(
 		ctx,
 		r.org,
@@ -186,7 +196,7 @@ func (r *repoClient) CreateIssueComment(ctx context.Context, issueID int, opts *
 }
 
 type contentDownloader interface {
-	DownloadContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
+	DownloadRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
 }
 
 func getFile(
@@ -195,7 +205,7 @@ func getFile(
 	sha string,
 	filename string) (io.ReadCloser, error) {
 
-	file, err := cd.DownloadContents(
+	file, err := cd.DownloadRepoContents(
 		ctx,
 		filename,
 		&github.RepositoryContentGetOptions{
