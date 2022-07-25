@@ -701,7 +701,7 @@ func createsNextCheckRun(task string) setupf {
 				},
 				{
 					Label:       "Skip",
-					Description: "mark this check as complete, but do not run the task",
+					Description: "mark as complete without running",
 					Identifier:  "skip",
 				},
 			},
