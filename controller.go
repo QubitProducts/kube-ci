@@ -213,6 +213,10 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
+	if labels := wf.GetLabels(); labels == nil || labels[labelManagedBy] != "kube-ci" {
+		return
+	}
+
 	if !wf.Status.FinishedAt.IsZero() {
 		return
 	}
@@ -534,6 +538,10 @@ func (ws *workflowSyncer) nodeURL(wf *workflow.Workflow, n workflow.NodeStatus) 
 func (ws *workflowSyncer) sync(wf *workflow.Workflow) (*workflow.Workflow, error) {
 	var err error
 	ctx := context.Background()
+
+	if labels := wf.GetLabels(); labels == nil || labels[labelManagedBy] != "kube-ci" {
+		return wf, nil
+	}
 
 	// we may modify this, so we'll just assume we will
 	wf = wf.DeepCopy()
