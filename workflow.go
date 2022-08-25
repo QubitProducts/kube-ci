@@ -384,7 +384,7 @@ type wfGHClient interface {
 	baseGHClient
 	contentDownloader
 	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
-	ghClientInterface
+	GithubClientInterface
 }
 
 func checkRunError(ctx context.Context, info *githubInfo, err error, title string) {

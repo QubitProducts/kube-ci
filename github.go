@@ -11,7 +11,7 @@ import (
 	"github.com/google/go-github/v45/github"
 )
 
-type ghClientInterface interface {
+type GithubClientInterface interface {
 	GetInstallID() int
 	GetRef(ctx context.Context, ref string) (*github.Reference, error)
 	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
@@ -36,7 +36,7 @@ type GithubKeyStore struct {
 	Orgs          *regexp.Regexp
 }
 
-func (ks *GithubKeyStore) getClient(org string, installID int, repo string) (ghClientInterface, error) {
+func (ks *GithubKeyStore) getClient(org string, installID int, repo string) (GithubClientInterface, error) {
 	validID := false
 	for _, id := range ks.IDs {
 		if installID == id {
@@ -72,5 +72,5 @@ func (ks *GithubKeyStore) getClient(org string, installID int, repo string) (ghC
 }
 
 type githubClientSource interface {
-	getClient(org string, installID int, repo string) (ghClientInterface, error)
+	getClient(org string, installID int, repo string) (GithubClientInterface, error)
 }

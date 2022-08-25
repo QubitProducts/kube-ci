@@ -1,4 +1,4 @@
-package kubeci
+package cistarlark
 
 import (
 	"net/http"

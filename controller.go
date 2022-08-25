@@ -708,7 +708,7 @@ type githubInfo struct {
 
 	deploymentIDs map[string]int64
 
-	ghClient ghClientInterface
+	ghClient GithubClientInterface
 }
 
 type deployIDs map[string]int64

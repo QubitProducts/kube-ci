@@ -20,7 +20,7 @@ type pvcManager interface {
 }
 
 type slashRunner interface {
-	slashCommand(ctx context.Context, client ghClientInterface, event *github.IssueCommentEvent) error
+	slashCommand(ctx context.Context, client GithubClientInterface, event *github.IssueCommentEvent) error
 }
 
 type HookHandler struct {

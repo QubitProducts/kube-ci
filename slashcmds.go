@@ -35,7 +35,7 @@ type SlashHandler struct {
 	Templates  TemplateSet
 }
 
-func (s *SlashHandler) slashComment(ctx context.Context, ghClient ghClientInterface, event *github.IssueCommentEvent, body string) error {
+func (s *SlashHandler) slashComment(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, body string) error {
 	err := ghClient.CreateIssueComment(
 		ctx,
 		int(*event.Issue.Number),
@@ -51,7 +51,7 @@ func (s *SlashHandler) slashComment(ctx context.Context, ghClient ghClientInterf
 	return nil
 }
 
-func (s *SlashHandler) slashUnknown(ctx context.Context, ghClient ghClientInterface, event *github.IssueCommentEvent, args ...string) error {
+func (s *SlashHandler) slashUnknown(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, args ...string) error {
 	body := `
 known command:
 - *run*: run the workflow onthe current branch (only valid for PRs)
@@ -68,7 +68,7 @@ known command:
 	return s.slashComment(ctx, ghClient, event, body)
 }
 
-func (s *SlashHandler) slashRun(ctx context.Context, ghClient ghClientInterface, event *github.IssueCommentEvent, args ...string) error {
+func (s *SlashHandler) slashRun(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, args ...string) error {
 	prlinks := event.GetIssue().GetPullRequestLinks()
 	if prlinks == nil {
 		body := strings.TrimSpace(`
@@ -103,7 +103,7 @@ func (s *SlashHandler) slashRun(ctx context.Context, ghClient ghClientInterface,
 	)
 }
 
-func (s *SlashHandler) slashDeploy(ctx context.Context, ghClient ghClientInterface, event *github.IssueCommentEvent, args ...string) error {
+func (s *SlashHandler) slashDeploy(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) > 1 {
 		return s.slashComment(ctx, ghClient, event, "please specify one environment")
 	}
@@ -137,7 +137,7 @@ func (s *SlashHandler) slashDeploy(ctx context.Context, ghClient ghClientInterfa
 	return nil
 }
 
-func (s *SlashHandler) slashSetup(ctx context.Context, ghClient ghClientInterface, event *github.IssueCommentEvent, args ...string) error {
+func (s *SlashHandler) slashSetup(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, args ...string) error {
 	if len(args) != 1 {
 		s.slashComment(ctx, ghClient, event, "you mest specify a template")
 		return nil
@@ -213,7 +213,7 @@ func (s *SlashHandler) slashSetup(ctx context.Context, ghClient ghClientInterfac
 	return nil
 }
 
-func (s *SlashHandler) issueHead(ctx context.Context, ghClient ghClientInterface, event *github.IssueCommentEvent) (string, string, error) {
+func (s *SlashHandler) issueHead(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent) (string, string, error) {
 	if event.Issue.PullRequestLinks == nil {
 		branch, err := ghClient.GetBranch(
 			ctx,
@@ -245,7 +245,7 @@ func (s *SlashHandler) issueHead(ctx context.Context, ghClient ghClientInterface
 	return *pr.Head.Ref, *pr.Head.SHA, nil
 }
 
-func (s *SlashHandler) slashCommand(ctx context.Context, client ghClientInterface, event *github.IssueCommentEvent) error {
+func (s *SlashHandler) slashCommand(ctx context.Context, client GithubClientInterface, event *github.IssueCommentEvent) error {
 	cmdparts := strings.SplitN(strings.TrimSpace(*event.Comment.Body), " ", 3)
 	user := event.Comment.GetUser()
 
@@ -274,7 +274,7 @@ func (s *SlashHandler) slashCommand(ctx context.Context, client ghClientInterfac
 		}
 	}
 
-	type slashCommand func(ctx context.Context, ghc ghClientInterface, event *github.IssueCommentEvent, args ...string) error
+	type slashCommand func(ctx context.Context, ghc GithubClientInterface, event *github.IssueCommentEvent, args ...string) error
 	handlers := map[string]slashCommand{
 		"run":    s.slashRun,
 		"deploy": s.slashDeploy,
