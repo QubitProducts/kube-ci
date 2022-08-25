@@ -1,4 +1,4 @@
-package main
+package kubeci
 
 import (
 	"fmt"
@@ -82,7 +82,7 @@ func (f *fixture) newController(config Config, t *testing.T) (*workflowSyncer, i
 	storage := &fakeStorageManager{}
 	clients := &testGHClientSrc{t: t}
 
-	c := newWorkflowSyncer(
+	c := NewWorkflowSyner(
 		f.k8sClient,
 		f.wfClient,
 		i,

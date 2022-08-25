@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package kubeci
 
 // controller.go: the controller (TODO: also currently syncer), updates
 // a github check run to match the current state of a workflow created
@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/url"
 	"regexp"
@@ -33,6 +34,7 @@ import (
 	clientset "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
 	informers "github.com/argoproj/argo-workflows/v3/pkg/client/informers/externalversions"
 	listers "github.com/argoproj/argo-workflows/v3/pkg/client/listers/workflow/v1alpha1"
+	"gopkg.in/yaml.v2"
 
 	"github.com/google/go-github/v45/github"
 	v1 "k8s.io/api/core/v1"
@@ -129,6 +131,52 @@ type Config struct {
 	actionTemplates        *regexp.Regexp
 	deployTemplates        *regexp.Regexp
 	productionEnvironments *regexp.Regexp
+}
+
+func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
+	var err error
+	wfconfig := Config{
+		CIFilePath:             ".kube-ci/ci.yaml",
+		Namespace:              defaultNamespace,
+		BuildDraftPRs:          false,
+		BuildBranches:          "master",
+		ActionTemplates:        "^$",
+		DeployTemplates:        "^$",
+		ProductionEnvironments: "^production$",
+		EnvironmentParameter:   "environment",
+	}
+
+	if configfile != "" {
+		bs, err := ioutil.ReadFile(configfile)
+		if err != nil {
+			log.Fatalf("failed to read config file, %v", err)
+		}
+		err = yaml.Unmarshal(bs, &wfconfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse config file, %w", err)
+		}
+	}
+
+	wfconfig.buildBranches, err = regexp.Compile(wfconfig.BuildBranches)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile branches regexp, %w", err)
+	}
+
+	wfconfig.actionTemplates, err = regexp.Compile(wfconfig.ActionTemplates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile actionTemplates regexp, %w", err)
+	}
+
+	wfconfig.deployTemplates, err = regexp.Compile(wfconfig.DeployTemplates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile deployTemplates regexp, %w", err)
+	}
+
+	wfconfig.productionEnvironments, err = regexp.Compile(wfconfig.DeployTemplates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile productionEnvironments regexp, %w", err)
+	}
+	return &wfconfig, nil
 }
 
 type storageManager interface {
@@ -240,7 +288,7 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 	)
 }
 
-func newWorkflowSyncer(
+func NewWorkflowSyner(
 	kubeclient kubernetes.Interface,
 	clientset clientset.Interface,
 	sinf informers.SharedInformerFactory,

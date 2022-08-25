@@ -1,4 +1,4 @@
-package main
+package kubeci
 
 import (
 	"context"
@@ -23,18 +23,18 @@ type slashRunner interface {
 	slashCommand(ctx context.Context, client ghClientInterface, event *github.IssueCommentEvent) error
 }
 
-type hookHandler struct {
-	storage pvcManager
-	clients githubClientSource
-	runner  workflowRunner
-	slash   slashRunner
+type HookHandler struct {
+	Storage pvcManager
+	Clients githubClientSource
+	Runner  workflowRunner
+	Slash   slashRunner
 
-	uiBase   string
-	ghSecret []byte
-	appID    int64
+	UIBase       string
+	GitHubSecret []byte
+	AppID        int64
 }
 
-func (h *hookHandler) webhookIssueComment(ctx context.Context, event *github.IssueCommentEvent) (int, string) {
+func (h *HookHandler) webhookIssueComment(ctx context.Context, event *github.IssueCommentEvent) (int, string) {
 	if *event.Action != "created" {
 		return http.StatusOK, ""
 	}
@@ -49,13 +49,13 @@ func (h *hookHandler) webhookIssueComment(ctx context.Context, event *github.Iss
 	org := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
 
-	client, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
+	client, err := h.Clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		log.Printf("error creating github client, %v", err)
 		return http.StatusBadRequest, "failed to create github client"
 	}
 
-	err = h.slash.slashCommand(ctx, client, event)
+	err = h.Slash.slashCommand(ctx, client, event)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -63,11 +63,11 @@ func (h *hookHandler) webhookIssueComment(ctx context.Context, event *github.Iss
 	return http.StatusOK, "ok"
 }
 
-func (h *hookHandler) webhookDeleteBranchEvent(ctx context.Context, event *github.DeleteEvent) (int, string) {
+func (h *HookHandler) webhookDeleteBranchEvent(ctx context.Context, event *github.DeleteEvent) (int, string) {
 	org := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
 	branch := event.GetRef()
-	err := h.storage.deletePVC(
+	err := h.Storage.deletePVC(
 		org,
 		repo,
 		branch,
@@ -79,10 +79,10 @@ func (h *hookHandler) webhookDeleteBranchEvent(ctx context.Context, event *githu
 	return http.StatusOK, "OK"
 }
 
-func (h *hookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *github.RepositoryEvent) (int, string) {
+func (h *HookHandler) webhookRepositoryDeleteEvent(ctx context.Context, event *github.RepositoryEvent) (int, string) {
 	org := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
-	err := h.storage.deletePVC(
+	err := h.Storage.deletePVC(
 		org,
 		repo,
 		"",
@@ -112,11 +112,11 @@ type DeploymentPayload struct {
 	KubeCI KubeCIPayload `json:"kube_ci"`
 }
 
-func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
+func (h *HookHandler) webhookDeployment(ctx context.Context, event *github.DeploymentEvent) (int, string) {
 	org := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
 
-	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
+	ghClient, err := h.Clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, "failed to create github client"
 	}
@@ -131,7 +131,7 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 	}
 
 	// Run a workflow to perform the deploy
-	err = h.runner.runWorkflow(ctx,
+	err = h.Runner.runWorkflow(ctx,
 		ghClient,
 		event.GetRepo(),
 		event.GetDeployment().GetSHA(),
@@ -148,15 +148,15 @@ func (h *hookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 	return http.StatusOK, ""
 }
 
-func (h *hookHandler) webhookDeploymentStatus(ctx context.Context, event *github.DeploymentStatusEvent) (int, string) {
+func (h *HookHandler) webhookDeploymentStatus(ctx context.Context, event *github.DeploymentStatusEvent) (int, string) {
 	log.Printf("deploy status: %v is %v", *event.DeploymentStatus.ID, *event.DeploymentStatus.State)
 	return http.StatusOK, ""
 }
 
-func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
+func (h *HookHandler) webhookCreateTag(ctx context.Context, event *github.CreateEvent) (int, string) {
 	owner := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
-	ghClient, err := h.clients.getClient(owner, int(*event.Installation.ID), repo)
+	ghClient, err := h.Clients.getClient(owner, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -172,7 +172,7 @@ func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 
 	headSHA := ref.Object.GetSHA()
 
-	err = h.runner.runWorkflow(
+	err = h.Runner.runWorkflow(
 		ctx,
 		ghClient,
 		event.Repo,
@@ -191,15 +191,15 @@ func (h *hookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 	return http.StatusOK, ""
 }
 
-func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
+func (h *HookHandler) webhookCheckSuite(ctx context.Context, event *github.CheckSuiteEvent) (int, string) {
 	org := event.GetOrg().GetLogin()
 	repo := event.GetRepo().GetName()
-	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
+	ghClient, err := h.Clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
 
-	err = h.runner.runWorkflow(
+	err = h.Runner.runWorkflow(
 		ctx,
 		ghClient,
 		event.Repo,
@@ -218,7 +218,7 @@ func (h *hookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 	return http.StatusOK, ""
 }
 
-func (h *hookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context, event *github.CheckRunEvent) (int, string) {
+func (h *HookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context, event *github.CheckRunEvent) (int, string) {
 	id := event.RequestedAction.Identifier
 	org := event.GetRepo().GetOwner().GetLogin()
 	repo := *event.Repo.Name
@@ -231,7 +231,7 @@ func (h *hookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context
 	// TODO(tcm): update the check-run, or create a new one, to indicate the
 	// cache is being cleared.
 
-	err := h.storage.deletePVC(
+	err := h.Storage.deletePVC(
 		org,
 		repo,
 		branch,
@@ -244,10 +244,10 @@ func (h *hookHandler) webhookCheckRunRequestActionClearCache(ctx context.Context
 	return 200, "OK"
 }
 
-func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
+func (h *HookHandler) webhookCheckRunRequestAction(ctx context.Context, event *github.CheckRunEvent) (int, string) {
 	repo := event.GetRepo().GetName()
 	org := event.GetRepo().GetOwner().GetLogin()
-	ghClient, err := h.clients.getClient(org, int(*event.Installation.ID), repo)
+	ghClient, err := h.Clients.getClient(org, int(*event.Installation.ID), repo)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
@@ -257,7 +257,7 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 	case "clearCacheBranch", "clearCache":
 		return h.webhookCheckRunRequestActionClearCache(ctx, event)
 	case "run":
-		err = h.runner.runWorkflow(ctx,
+		err = h.Runner.runWorkflow(ctx,
 			ghClient,
 			event.GetRepo(),
 			event.GetCheckRun().GetHeadSHA(),
@@ -293,7 +293,7 @@ func (h *hookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 	return http.StatusOK, "action initiated"
 }
 
-func (h *hookHandler) loggingWebhook(w http.ResponseWriter, r *http.Request) (int, string) {
+func (h *HookHandler) LoggingWebhook(w http.ResponseWriter, r *http.Request) (int, string) {
 	status, msg := h.webhook(w, r)
 	if status != 0 && status != http.StatusOK {
 		log.Printf("error returned from webhook, %d: %s", status, msg)
@@ -301,11 +301,11 @@ func (h *hookHandler) loggingWebhook(w http.ResponseWriter, r *http.Request) (in
 	return status, msg
 }
 
-func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) (int, string) {
+func (h *HookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) (int, string) {
 	switch event := rawEvent.(type) {
 
 	case *github.CheckSuiteEvent:
-		if event.GetCheckSuite().GetApp().GetID() != h.appID {
+		if event.GetCheckSuite().GetApp().GetID() != h.AppID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
 		// TODO: HeadBranch is not set for all events, need to understand why
@@ -328,7 +328,7 @@ func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) 
 		}
 
 	case *github.CheckRunEvent:
-		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != h.appID {
+		if event.GetCheckRun().GetCheckSuite().GetApp().GetID() != h.AppID {
 			return http.StatusOK, "ignoring, wrong appID"
 		}
 
@@ -395,8 +395,8 @@ func (h *hookHandler) webhookPayload(ctx context.Context, rawEvent interface{}) 
 	}
 }
 
-func (h *hookHandler) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
-	payload, err := github.ValidatePayload(r, h.ghSecret)
+func (h *HookHandler) webhook(w http.ResponseWriter, r *http.Request) (int, string) {
+	payload, err := github.ValidatePayload(r, h.GitHubSecret)
 	if err != nil {
 		return http.StatusBadRequest, "request did not validate"
 	}

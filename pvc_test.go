@@ -1,4 +1,4 @@
-package main
+package kubeci
 
 import (
 	"context"
@@ -59,11 +59,11 @@ func TestWebhookDeleteBranchEvent(t *testing.T) {
 	pvcs = append(pvcs, newPVC("someother", "argo", "myorg", "myrepo2", "project", ""))
 	client := k8sfake.NewSimpleClientset(pvcs...)
 
-	sm := &k8sStorageManager{
-		kubeclient: client,
+	sm := &K8sStorageManager{
+		KubeClient: client,
 	}
-	hh := &hookHandler{
-		storage: sm,
+	hh := &HookHandler{
+		Storage: sm,
 	}
 
 	ev := &github.DeleteEvent{
@@ -121,11 +121,11 @@ func TestWebhookRepositoryDeleteEvent(t *testing.T) {
 
 	client := k8sfake.NewSimpleClientset(pvcs...)
 
-	sm := &k8sStorageManager{
-		kubeclient: client,
+	sm := &K8sStorageManager{
+		KubeClient: client,
 	}
-	hh := hookHandler{
-		storage: sm,
+	hh := HookHandler{
+		Storage: sm,
 	}
 
 	ev := &github.RepositoryEvent{
@@ -172,11 +172,11 @@ func TestWebhookDeleteBranchEvent_BadName(t *testing.T) {
 	pvcs = append(pvcs, newPVC("somepvcwecreated", "argo", "myorg", "myrepo", "project", ""))
 	client := k8sfake.NewSimpleClientset(pvcs...)
 
-	sm := &k8sStorageManager{
-		kubeclient: client,
+	sm := &K8sStorageManager{
+		KubeClient: client,
 	}
-	hh := &hookHandler{
-		storage: sm,
+	hh := &HookHandler{
+		Storage: sm,
 	}
 
 	ev := &github.DeleteEvent{
