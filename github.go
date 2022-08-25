@@ -1,4 +1,4 @@
-package main
+package kubeci
 
 import (
 	"context"
@@ -28,32 +28,32 @@ type ghClientInterface interface {
 	CreateIssueComment(ctx context.Context, issueID int, opts *github.IssueComment) error
 }
 
-type githubKeyStore struct {
-	baseTransport http.RoundTripper
-	appID         int64
-	ids           []int
-	key           []byte
-	orgs          *regexp.Regexp
+type GithubKeyStore struct {
+	BaseTransport http.RoundTripper
+	AppID         int64
+	IDs           []int
+	Key           []byte
+	Orgs          *regexp.Regexp
 }
 
-func (ks *githubKeyStore) getClient(org string, installID int, repo string) (ghClientInterface, error) {
+func (ks *GithubKeyStore) getClient(org string, installID int, repo string) (ghClientInterface, error) {
 	validID := false
-	for _, id := range ks.ids {
+	for _, id := range ks.IDs {
 		if installID == id {
 			validID = true
 			break
 		}
 	}
 
-	if len(ks.ids) > 0 && !validID {
+	if len(ks.IDs) > 0 && !validID {
 		return nil, fmt.Errorf("unknown installation %d", installID)
 	}
 
-	if ks.orgs != nil && !ks.orgs.MatchString(org) {
+	if ks.Orgs != nil && !ks.Orgs.MatchString(org) {
 		return nil, fmt.Errorf("refusing event from untrusted org %s", org)
 	}
 
-	itr, err := ghinstallation.New(ks.baseTransport, ks.appID, int64(installID), ks.key)
+	itr, err := ghinstallation.New(ks.BaseTransport, ks.AppID, int64(installID), ks.Key)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-package main
+package kubeci
 
 import (
 	"encoding/json"
@@ -45,7 +45,7 @@ func (scs *slackCmds) setupCmd(org, repo string, args []string) *slack.Msg {
 	}
 }
 
-func newSlack(tokenFile, signingSecretFile string, ciFilePath string, templates TemplateSet) (*slackCmds, error) {
+func NewSlack(tokenFile, signingSecretFile string, ciFilePath string, templates TemplateSet) (*slackCmds, error) {
 	token, err := ioutil.ReadFile(tokenFile)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read slack token, %w", err)

@@ -1,4 +1,4 @@
-package main
+package kubeci
 
 import (
 	"bytes"
@@ -8,12 +8,12 @@ import (
 	"sync/atomic"
 )
 
-type statusHandler struct {
-	shutdown *int32
+type StatusHandler struct {
+	Status *int32
 }
 
-func (h *statusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	status := atomic.LoadInt32(h.shutdown)
+func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	status := atomic.LoadInt32(h.Status)
 	w.WriteHeader(int(status))
 
 	// We'll be kind and do a JSON blob here, as the python
@@ -32,6 +32,6 @@ func (h *statusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, buf)
 }
 
-func (h *statusHandler) Shutdown() {
-	atomic.StoreInt32(h.shutdown, 500)
+func (h *StatusHandler) Shutdown() {
+	atomic.StoreInt32(h.Status, 500)
 }

@@ -1,4 +1,4 @@
-package main
+package kubeci
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/google/go-github/v45/github"
 )
 
-func (f *fixture) newWebhook() *hookHandler {
+func (f *fixture) newWebhook() *HookHandler {
 	return nil
 }
 
