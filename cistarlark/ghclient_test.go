@@ -1,4 +1,4 @@
-package kubeci
+package cistarlark
 
 import (
 	"bytes"
@@ -9,8 +9,11 @@ import (
 	"os"
 	"testing"
 
+	kubeci "github.com/QubitProducts/kube-ci"
 	"github.com/google/go-github/v45/github"
 )
+
+// TODO(TCM): This is all copied from above, refactor it to reuse
 
 type repoContentKey struct {
 	org  string
@@ -199,7 +202,7 @@ func (tcs *testGHClientSrc) addGithubCall(call string, err error, res interface{
 	tcs.calls[call] = append(tcs.calls[call], ghcall)
 }
 
-func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (GithubClientInterface, error) {
+func (tcs *testGHClientSrc) getClient(org string, installID int, repo string) (kubeci.GithubClientInterface, error) {
 	return &testGHClientInterface{
 		instID: 1234,
 		org:    org,
