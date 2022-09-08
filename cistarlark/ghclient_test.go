@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -129,7 +128,7 @@ func (tgi *testGHClientInterface) DownloadContents(ctx context.Context, org, rep
 		return nil, err
 	}
 
-	res := ioutil.NopCloser(bytes.NewBufferString(str))
+	res := io.NopCloser(bytes.NewBufferString(str))
 	tgi.src.addGithubCall("get_contents", nil, res, key.org, key.repo, opts)
 	return res, nil
 }

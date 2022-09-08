@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/mattn/go-shellwords"
@@ -46,11 +46,11 @@ func (scs *slackCmds) setupCmd(org, repo string, args []string) *slack.Msg {
 }
 
 func NewSlack(tokenFile, signingSecretFile string, ciFilePath string, templates TemplateSet) (*slackCmds, error) {
-	token, err := ioutil.ReadFile(tokenFile)
+	token, err := os.ReadFile(tokenFile)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read slack token, %w", err)
 	}
-	signingSecret, err := ioutil.ReadFile(signingSecretFile)
+	signingSecret, err := os.ReadFile(signingSecretFile)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read slack signing secret, %w", err)
 	}
@@ -71,7 +71,7 @@ func (scs *slackCmds) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = ioutil.NopCloser(io.TeeReader(r.Body, &verifier))
+	r.Body = io.NopCloser(io.TeeReader(r.Body, &verifier))
 	s, err := slack.SlashCommandParse(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

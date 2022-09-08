@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -166,7 +165,7 @@ func (gh *modSrc) openHTTPFile(thread *starlark.Thread, url *url.URL) (starlark.
 		return emptyStr, fmt.Errorf("invalid HTTP status code, %v", resp.StatusCode)
 	}
 
-	bs, err := ioutil.ReadAll(resp.Body)
+	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return emptyStr, fmt.Errorf("reading HTTP body failed, %v", err)
 	}

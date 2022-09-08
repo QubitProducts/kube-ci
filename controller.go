@@ -21,9 +21,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -147,7 +147,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 	}
 
 	if configfile != "" {
-		bs, err := ioutil.ReadFile(configfile)
+		bs, err := os.ReadFile(configfile)
 		if err != nil {
 			log.Fatalf("failed to read config file, %v", err)
 		}

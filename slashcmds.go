@@ -17,9 +17,9 @@ package kubeci
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -188,7 +188,7 @@ func (s *SlashHandler) slashSetup(ctx context.Context, ghClient GithubClientInte
 		}
 	}
 
-	bs, err := ioutil.ReadFile(tmpl.CI)
+	bs, err := os.ReadFile(tmpl.CI)
 	if err != nil {
 		s.slashComment(ctx, ghClient, event, fmt.Sprintf("couldn't read template file %s, ci server config is broken!", fileName))
 		return nil
