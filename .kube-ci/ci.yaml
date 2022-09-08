@@ -25,9 +25,9 @@ spec:
         set -x
         set -e
         gofmt -l -e .
-        go vet .
-        go run honnef.co/go/tools/cmd/staticcheck .
-        go test -v
+        go vet ./...
+        go run honnef.co/go/tools/cmd/staticcheck ./...
+        go test -v ./...
       command:
       - /bin/sh
       - -c
