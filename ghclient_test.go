@@ -134,6 +134,17 @@ func (tgi *testGHClientInterface) CreateFile(ctx context.Context, filepath strin
 	panic("not implemented") // TODO: Implement
 }
 
+func (tgi *testGHClientInterface) GetRepo(ctx context.Context) (*github.Repository, error) {
+	res := &github.Repository{
+		Name:          github.String(tgi.repo),
+		DefaultBranch: github.String("master"),
+	}
+
+	tgi.src.addGithubCall("get_repo", nil, res)
+
+	return res, nil
+}
+
 func (tgi *testGHClientInterface) GetRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
 	key := repoContentKey{
 		org:  tgi.org,
