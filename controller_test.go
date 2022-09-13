@@ -614,6 +614,12 @@ func createCheckRunRaw(opt github.CreateCheckRunOptions) setupf {
 	}
 }
 
+func readRepoDetails() setupf {
+	return func(f *fixture) {
+		f.expectGithubCall("get_repo", nil)
+	}
+}
+
 func createDeploymentStatus(opts *github.DeploymentStatusRequest) setupf {
 	return func(f *fixture) {
 		id := int64(1)
@@ -778,6 +784,7 @@ func TestCreateWorkflow(t *testing.T) {
 	config.deployTemplates = regexp.MustCompile("^$")
 	config.actionTemplates = regexp.MustCompile("^$")
 	config.productionEnvironments = regexp.MustCompile("^$")
+	config.nonInteractiveBranch = regexp.MustCompile("^(production|staging)$")
 
 	alreadyPublished := map[string]string{annAnnotationsPublished: "true"}
 	alreadyPublishedWithDeploy := map[string]string{
@@ -808,6 +815,7 @@ func TestCreateWorkflow(t *testing.T) {
 			workflow.WorkflowSucceeded,
 			[]setupf{
 				updatesCheckRunAnnotations(),
+				readRepoDetails(),
 			},
 			githubStatus("completed", "success", nil),
 		},
@@ -820,6 +828,7 @@ func TestCreateWorkflow(t *testing.T) {
 				),
 				updatesCheckRunAnnotations(),
 				expectCheckRunActions(volumeAction("branch")),
+				readRepoDetails(),
 			},
 			githubStatus("completed", "success", nil),
 		},
@@ -832,6 +841,7 @@ func TestCreateWorkflow(t *testing.T) {
 				),
 				updatesCheckRunAnnotations(),
 				expectCheckRunActions(volumeAction("project")),
+				readRepoDetails(),
 			},
 			githubStatus("completed", "success", nil),
 		},
@@ -846,6 +856,7 @@ func TestCreateWorkflow(t *testing.T) {
 				enableUserActions("^release-staging$"),
 				expectCheckRunActions(volumeAction("project")),
 				createsNextCheckRun("release-staging"),
+				readRepoDetails(),
 			},
 			githubStatus("completed", "success", nil),
 		},
@@ -859,6 +870,7 @@ func TestCreateWorkflow(t *testing.T) {
 				updatesCheckRunAnnotations(),
 				enableUserActions("^very-long-"),
 				expectCheckRunActions(volumeAction("project")),
+				readRepoDetails(),
 			},
 			githubStatus(
 				"completed",

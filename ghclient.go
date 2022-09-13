@@ -37,6 +37,15 @@ func (r *repoClient) GetRef(ctx context.Context, ref string) (*github.Reference,
 	return gref, err
 }
 
+func (r *repoClient) GetRepo(ctx context.Context) (*github.Repository, error) {
+	res, _, err := r.client.Repositories.Get(
+		ctx,
+		r.org,
+		r.repo,
+	)
+	return res, err
+}
+
 func (r *repoClient) UpdateCheckRun(ctx context.Context, id int64, upd github.UpdateCheckRunOptions) (*github.CheckRun, error) {
 	cr, _, err := r.client.Checks.UpdateCheckRun(
 		ctx,

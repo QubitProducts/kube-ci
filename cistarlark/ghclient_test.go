@@ -54,6 +54,17 @@ func (tgi *testGHClientInterface) GetRef(ctx context.Context, ref string) (*gith
 	panic("not implemented") // TODO: Implement
 }
 
+func (tgi *testGHClientInterface) GetRepo(ctx context.Context) (*github.Repository, error) {
+	res := &github.Repository{
+		Name:          github.String(tgi.repo),
+		DefaultBranch: github.String("master"),
+	}
+
+	tgi.src.addGithubCall("get_repo", nil, res)
+
+	return res, nil
+}
+
 func (tgi *testGHClientInterface) CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error) {
 	id := int64(1)
 	res := &github.CheckRun{

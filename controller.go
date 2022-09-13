@@ -124,6 +124,7 @@ type Config struct {
 	DeployTemplates        string `yaml:"deployTemplates"`
 	ProductionEnvironments string `yaml:"productionEnvironments"`
 	EnvironmentParameter   string `yaml:"environmentParameter"`
+	NonInteractiveBranches string `yaml:"nonInteractiveBranches"`
 
 	ExtraParameters map[string]string `yaml:"extraParameters"`
 
@@ -131,6 +132,7 @@ type Config struct {
 	actionTemplates        *regexp.Regexp
 	deployTemplates        *regexp.Regexp
 	productionEnvironments *regexp.Regexp
+	nonInteractiveBranch   *regexp.Regexp
 }
 
 func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
@@ -144,6 +146,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 		DeployTemplates:        "^$",
 		ProductionEnvironments: "^production$",
 		EnvironmentParameter:   "environment",
+		NonInteractiveBranches: "^$",
 	}
 
 	if configfile != "" {
@@ -175,6 +178,11 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 	wfconfig.productionEnvironments, err = regexp.Compile(wfconfig.DeployTemplates)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile productionEnvironments regexp, %w", err)
+	}
+
+	wfconfig.nonInteractiveBranch, err = regexp.Compile(wfconfig.NonInteractiveBranches)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile nonInteractiveBranches regexp, %w", err)
 	}
 	return &wfconfig, nil
 }
@@ -871,17 +879,39 @@ func (ws *workflowSyncer) buttonsForWorkflow(wf *workflow.Workflow) ([]*github.C
 	return actions, warnings
 }
 
+func (ws *workflowSyncer) isInteractiveBranch(ctx context.Context, ghInfo *githubInfo) (bool, error) {
+	r, err := ghInfo.ghClient.GetRepo(ctx)
+	if err != nil {
+		return false, err
+	}
+	if r.GetDefaultBranch() == ghInfo.headBranch {
+		return false, nil
+	}
+
+	if ws.config.nonInteractiveBranch.MatchString(ghInfo.headBranch) {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *workflow.Workflow, ghInfo *githubInfo) []string {
 	var warnings []string
+	ok, err := ws.isInteractiveBranch(ctx, ghInfo)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("error when check for active PRs, %v", err))
+	}
 
 	var nextTasks []string
-	for _, t := range wf.Spec.Templates {
-		if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
-			if len(t.Name) > 20 {
-				warnings = append(warnings, fmt.Sprintf("Action button %s dropped, only 20 chars permitted", t.Name))
-				continue
+	if ok {
+		for _, t := range wf.Spec.Templates {
+			if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
+				if len(t.Name) > 20 {
+					warnings = append(warnings, fmt.Sprintf("Action button %s dropped, only 20 chars permitted", t.Name))
+					continue
+				}
+				nextTasks = append(nextTasks, t.Name)
 			}
-			nextTasks = append(nextTasks, t.Name)
 		}
 	}
 
