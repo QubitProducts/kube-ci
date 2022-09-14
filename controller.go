@@ -65,6 +65,10 @@ var (
 	annRunBranch = "kube-ci.qutics.com/runForBranch"
 	annRunTag    = "kube-ci.qutics.com/runForTag"
 
+	annManualTemplates        = "kube-ci.qutics.com/manualTemplates"
+	annDeployTemplates        = "kube-ci.qutics.com/deployTemplates"
+	annNonInteractiveBranches = "kube-ci.qutics.com/nonInteractiveBranches"
+
 	annFeatures = "kube-ci.qutics.com/features"
 
 	annWorkflowLint = "kube-ci.qutics.com/lint"
@@ -120,7 +124,7 @@ type Config struct {
 	BuildDraftPRs bool              `yaml:"buildDraftPRs"`
 	BuildBranches string            `yaml:"buildBranches"`
 
-	ActionTemplates        string `yaml:"actionTemplates"`
+	ManualTemplates        string `yaml:"manualTemplates"`
 	DeployTemplates        string `yaml:"deployTemplates"`
 	ProductionEnvironments string `yaml:"productionEnvironments"`
 	EnvironmentParameter   string `yaml:"environmentParameter"`
@@ -129,10 +133,10 @@ type Config struct {
 	ExtraParameters map[string]string `yaml:"extraParameters"`
 
 	buildBranches          *regexp.Regexp
-	actionTemplates        *regexp.Regexp
+	manualTemplates        *regexp.Regexp
 	deployTemplates        *regexp.Regexp
 	productionEnvironments *regexp.Regexp
-	nonInteractiveBranch   *regexp.Regexp
+	nonInteractiveBranches *regexp.Regexp
 }
 
 func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
@@ -142,7 +146,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 		Namespace:              defaultNamespace,
 		BuildDraftPRs:          false,
 		BuildBranches:          "master",
-		ActionTemplates:        "^$",
+		ManualTemplates:        "^$",
 		DeployTemplates:        "^$",
 		ProductionEnvironments: "^production$",
 		EnvironmentParameter:   "environment",
@@ -165,7 +169,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 		return nil, fmt.Errorf("failed to compile branches regexp, %w", err)
 	}
 
-	wfconfig.actionTemplates, err = regexp.Compile(wfconfig.ActionTemplates)
+	wfconfig.manualTemplates, err = regexp.Compile(wfconfig.ManualTemplates)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile actionTemplates regexp, %w", err)
 	}
@@ -180,7 +184,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 		return nil, fmt.Errorf("failed to compile productionEnvironments regexp, %w", err)
 	}
 
-	wfconfig.nonInteractiveBranch, err = regexp.Compile(wfconfig.NonInteractiveBranches)
+	wfconfig.nonInteractiveBranches, err = regexp.Compile(wfconfig.NonInteractiveBranches)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile nonInteractiveBranches regexp, %w", err)
 	}
@@ -525,8 +529,13 @@ func (ws *workflowSyncer) getDeployNodeEnv(n workflow.NodeStatus) string {
 }
 
 func (ws *workflowSyncer) syncDeployments(ctx context.Context, wf *workflow.Workflow, info *githubInfo) (*workflow.Workflow, error) {
+	templRegex := ws.config.deployTemplates
+	if str := wf.Annotations[annDeployTemplates]; str != "" {
+		templRegex, _ = regexp.Compile(str)
+	}
+
 	for _, n := range wf.Status.Nodes {
-		if n.TemplateName == "" || !ws.config.deployTemplates.MatchString(n.TemplateName) {
+		if n.TemplateName == "" || !templRegex.MatchString(n.TemplateName) {
 			continue
 		}
 
@@ -879,7 +888,7 @@ func (ws *workflowSyncer) buttonsForWorkflow(wf *workflow.Workflow) ([]*github.C
 	return actions, warnings
 }
 
-func (ws *workflowSyncer) isInteractiveBranch(ctx context.Context, ghInfo *githubInfo) (bool, error) {
+func (ws *workflowSyncer) isInteractiveBranch(ctx context.Context, wf *workflow.Workflow, ghInfo *githubInfo) (bool, error) {
 	r, err := ghInfo.ghClient.GetRepo(ctx)
 	if err != nil {
 		return false, err
@@ -888,7 +897,14 @@ func (ws *workflowSyncer) isInteractiveBranch(ctx context.Context, ghInfo *githu
 		return false, nil
 	}
 
-	if ws.config.nonInteractiveBranch.MatchString(ghInfo.headBranch) {
+	templRegex := ws.config.nonInteractiveBranches
+	if str := wf.Annotations[annNonInteractiveBranches]; str != "" {
+		templRegex, err = regexp.Compile(str)
+		if err != nil {
+			templRegex = ws.config.nonInteractiveBranches
+		}
+	}
+	if templRegex.MatchString(ghInfo.headBranch) {
 		return false, nil
 	}
 
@@ -897,15 +913,24 @@ func (ws *workflowSyncer) isInteractiveBranch(ctx context.Context, ghInfo *githu
 
 func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *workflow.Workflow, ghInfo *githubInfo) []string {
 	var warnings []string
-	ok, err := ws.isInteractiveBranch(ctx, ghInfo)
+	ok, err := ws.isInteractiveBranch(ctx, wf, ghInfo)
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("error when check for active PRs, %v", err))
+	}
+
+	templRegex := ws.config.manualTemplates
+	if str := wf.Annotations[annManualTemplates]; str != "" {
+		templRegex, err = regexp.Compile(str)
+		if err != nil {
+			templRegex = ws.config.manualTemplates
+			warnings = append(warnings, fmt.Sprintf("ignoring bad manual template regexp, %v", err))
+		}
 	}
 
 	var nextTasks []string
 	if ok {
 		for _, t := range wf.Spec.Templates {
-			if t.Name != "" && ws.config.actionTemplates.MatchString(t.Name) {
+			if t.Name != "" && templRegex.MatchString(t.Name) {
 				if len(t.Name) > 20 {
 					warnings = append(warnings, fmt.Sprintf("Action button %s dropped, only 20 chars permitted", t.Name))
 					continue

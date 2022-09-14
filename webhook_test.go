@@ -82,7 +82,7 @@ type hookHandler struct {
 func TestWebhookHandler_webhookPayload(t *testing.T) {
 	var config Config
 	config.deployTemplates = regexp.MustCompile("^$")
-	config.actionTemplates = regexp.MustCompile("^$")
+	config.manualTemplates = regexp.MustCompile("^$")
 	config.productionEnvironments = regexp.MustCompile("^$")
 
 	var tests = []struct {

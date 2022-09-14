@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -414,6 +415,13 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 		dregex := ws.config.deployTemplates
 		if dregex == nil {
 			return fmt.Errorf("deployment templates are not configured")
+		}
+		if str := wf.Annotations[annDeployTemplates]; str != "" {
+			var err error
+			dregex, err = regexp.Compile(str)
+			if err != nil {
+				return fmt.Errorf("annotation %s contains invalid regex, %s", annDeployTemplates, err)
+			}
 		}
 		if dregex != nil && !dregex.MatchString(entrypoint) {
 			return fmt.Errorf("requested deployment action %s does not match configured deployment templates, %s", entrypoint, dregex.String())
