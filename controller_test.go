@@ -657,7 +657,7 @@ func deploymentStatusRequest(_ *workflow.Workflow) *github.DeploymentStatusReque
 
 func enableUserActions(regex string) setupf {
 	return func(f *fixture) {
-		f.config.actionTemplates = regexp.MustCompile(regex)
+		f.config.manualTemplates = regexp.MustCompile(regex)
 	}
 }
 
@@ -782,9 +782,9 @@ func deploymentRequest(wf *workflow.Workflow) *github.DeploymentRequest {
 func TestCreateWorkflow(t *testing.T) {
 	var config Config
 	config.deployTemplates = regexp.MustCompile("^$")
-	config.actionTemplates = regexp.MustCompile("^$")
+	config.manualTemplates = regexp.MustCompile("^$")
 	config.productionEnvironments = regexp.MustCompile("^$")
-	config.nonInteractiveBranch = regexp.MustCompile("^(production|staging)$")
+	config.nonInteractiveBranches = regexp.MustCompile("^(production|staging)$")
 
 	alreadyPublished := map[string]string{annAnnotationsPublished: "true"}
 	alreadyPublishedWithDeploy := map[string]string{
