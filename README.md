@@ -53,6 +53,16 @@ Cache volume:
 - *kube-ci.qutics.com/cacheName*: This can be used to set a specific PVC claim name to be used as the cache,
   other cache settings will be ignored.
 
+Manual step, and deployment controls:
+- kube-ci.qutics.com/manualTemplates: override the set of templates that will
+  be presented as manually run check-run steps.
+- kube-ci.qutics.com/deployTemplates: override the set of templates that will
+  be tracked via a GitHub deployment.
+- kube-ci.qutics.com/nonInteractiveBranches: Do not present manual check-run
+  steps for check-run's created for commits with this as a the head branch.
+  (these are in addition to check-runs created with the repositories default
+  branch as the head branch.
+
 ## Workflow Parameters.
 
 Some extra parameteres will be added to your workflow before it is run.
@@ -89,6 +99,32 @@ annotations:
 ## TODO
 - better metrics
 - example deployment assets
+
+## Manual Check Run steps
+
+On successful completion of the default template of your workflow, kube-ci can present an extra set
+of check-runs, set to "needs_action". The user can then run, or skip those steps using buttons on the
+check-run. If the user clicks "Run", a new argo-workflow will be run for that step.
+
+Check runs are not presented in the following circumstances:
+- If the default entrypoint workflow fails
+- If the workflow that has run is not the default entrypoint workflow.
+- If the workflow head branch is the same as the repo default branch
+- If the workflow head branch matches the configured non-interactive-branches regular expression.
+
+The last two steps are intended to prevent "failing" check-runs created for merge commits for a
+successfully merged PR (the logic here may need to change in future).
+
+## GitHub Deployments
+
+Kube-CI can create Github Deployments to track which commits are deployed to which environments.
+Any step that includes a template that matches the configure DeploymentTemplates regular expression
+(or workflow annotation override), will have a Deployment created and tracked, based on the
+success/failure of the run of that deployment.
+
+The template must include a parameter that passes in the specific environment
+to create the Deployment for. By default we look for `environment` in the parameters
+list, but this can be overriden with the `environmentParameter` configuration variable.
 
 # Deploying
 
