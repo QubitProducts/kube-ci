@@ -861,6 +861,58 @@ func TestCreateWorkflow(t *testing.T) {
 			githubStatus("completed", "success", nil),
 		},
 		{
+			"normal_succeeded_with_action_buttons_defaultbranch",
+			workflow.WorkflowSucceeded,
+			[]setupf{
+				addAnnotations(
+					map[string]string{
+						"kube-ci.qutics.com/cacheScope": "project",
+						"kube-ci.qutics.com/branch":     "master",
+					},
+				),
+				updatesCheckRunAnnotations(),
+				enableUserActions("^release-staging$"),
+				expectCheckRunActions(volumeAction("project")),
+				readRepoDetails(),
+			},
+			githubStatus("completed", "success", nil),
+		},
+		{
+			"normal_succeeded_with_action_buttons_noninteractivebranch",
+			workflow.WorkflowSucceeded,
+			[]setupf{
+				addAnnotations(
+					map[string]string{
+						"kube-ci.qutics.com/cacheScope": "project",
+						"kube-ci.qutics.com/branch":     "staging",
+					},
+				),
+				updatesCheckRunAnnotations(),
+				enableUserActions("^release-staging$"),
+				expectCheckRunActions(volumeAction("project")),
+				readRepoDetails(),
+			},
+			githubStatus("completed", "success", nil),
+		},
+		{
+			"normal_succeeded_with_action_buttons_noninteractivebranchannotation",
+			workflow.WorkflowSucceeded,
+			[]setupf{
+				addAnnotations(
+					map[string]string{
+						"kube-ci.qutics.com/cacheScope":             "project",
+						"kube-ci.qutics.com/branch":                 "mybranch",
+						"kube-ci.qutics.com/nonInteractiveBranches": "^mybranch$",
+					},
+				),
+				updatesCheckRunAnnotations(),
+				enableUserActions("^release-staging$"),
+				expectCheckRunActions(volumeAction("project")),
+				readRepoDetails(),
+			},
+			githubStatus("completed", "success", nil),
+		},
+		{
 			"normal_succeeded_with_long_action_buttons",
 			workflow.WorkflowSucceeded,
 			[]setupf{
