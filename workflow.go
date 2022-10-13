@@ -507,26 +507,29 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		// can't return here, we need to report the error
 	}
 
-	if epErr == nil {
+	if wf != nil && epErr == nil {
 		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
+		if de != nil {
+			crName += " (deployment)"
+		}
 	}
-	if de != nil {
-		crName += " (deployment)"
+
+	cro := github.CreateCheckRunOptions{
+		Name:    crName,
+		HeadSHA: sha,
+		Status:  defaultCheckRunStatus,
+		Output: &github.CheckRunOutput{
+			Title:   github.String("Workflow Setup"),
+			Summary: github.String("Creating workflow"),
+		},
+	}
+
+	if wf != nil {
+		cro.ExternalID = github.String(wf.Spec.Entrypoint)
 	}
 
 	title := github.String("Workflow Setup")
-	cr, crErr := ghClient.CreateCheckRun(ctx,
-		github.CreateCheckRunOptions{
-			Name:       crName,
-			HeadSHA:    sha,
-			ExternalID: github.String(wf.Spec.Entrypoint),
-			Status:     defaultCheckRunStatus,
-			Output: &github.CheckRunOutput{
-				Title:   github.String("Workflow Setup"),
-				Summary: github.String("Creating workflow"),
-			},
-		},
-	)
+	cr, crErr := ghClient.CreateCheckRun(ctx, cro)
 	if crErr != nil {
 		log.Printf("Unable to create check run, %v", crErr)
 		return fmt.Errorf("creating check run failed, %w", crErr)
