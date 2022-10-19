@@ -115,7 +115,8 @@ func (ts TemplateSet) Help() string {
 
 // Config defines our configuration file format
 type Config struct {
-	CIFilePath    string            `yaml:"ciFilePath"`
+	CIContextPath string            `yaml:"ciContextPath"`
+	CIYAMLFile    string            `yaml:"ciYAMLFile"`
 	Namespace     string            `yaml:"namespace"`
 	Tolerations   []v1.Toleration   `yaml:"tolerations"`
 	NodeSelector  map[string]string `yaml:"nodeSelector"`
@@ -142,7 +143,8 @@ type Config struct {
 func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 	var err error
 	wfconfig := Config{
-		CIFilePath:             ".kube-ci/ci.yaml",
+		CIYAMLFile:             "ci.yaml",
+		CIContextPath:          ".kube-ci",
 		Namespace:              defaultNamespace,
 		BuildDraftPRs:          false,
 		BuildBranches:          "master",

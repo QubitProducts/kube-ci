@@ -243,7 +243,7 @@ func DefaultMain() {
 			http.HandlerFunc(rootHandler)))
 
 	if *slackTokenFile != "" {
-		slack, err := NewSlack(*slackTokenFile, *slackSigningSecretFile, wfconfig.CIFilePath, wfconfig.TemplateSet)
+		slack, err := NewSlack(*slackTokenFile, *slackSigningSecretFile, wfconfig.CIContextPath, wfconfig.TemplateSet)
 		if err != nil {
 			log.Fatalf("couldn't setup slack, %v", err)
 		}
@@ -251,9 +251,10 @@ func DefaultMain() {
 	}
 
 	slashHandler := &SlashHandler{
-		CIFilePath: wfconfig.CIFilePath,
-		Templates:  wfconfig.TemplateSet,
-		Runner:     wfSyncer,
+		CIContextPath: wfconfig.CIContextPath,
+		CIYAMLFile:    wfconfig.CIYAMLFile,
+		Templates:     wfconfig.TemplateSet,
+		Runner:        wfSyncer,
 	}
 
 	hookHandler := &HookHandler{

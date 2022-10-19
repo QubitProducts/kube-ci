@@ -8,11 +8,12 @@ import (
 	"net/http"
 	"strings"
 
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v45/github"
 )
 
 type workflowRunner interface {
-	runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, deployevent *github.DeploymentEvent) error
+	runWorkflow(ctx context.Context, ghClient wfGHClient, wctx *WorkflowContext) (*workflow.Workflow, error)
 }
 
 type pvcManager interface {
@@ -139,16 +140,20 @@ func (h *HookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		return http.StatusBadRequest, "ignored, ref_type must be branch or tag"
 	}
 
+	wctx := WorkflowContext{
+		Repo:        event.GetRepo(),
+		SHA:         event.GetDeployment().GetSHA(),
+		Ref:         event.GetDeployment().GetRef(),
+		RefType:     refType, // TODO - the ref could be a tag or a branch
+		Entrypoint:  event.GetDeployment().GetTask(),
+		PRs:         nil,
+		DeployEvent: event,
+	}
+
 	// Run a workflow to perform the deploy
-	err = h.Runner.runWorkflow(ctx,
+	_, err = h.Runner.runWorkflow(ctx,
 		ghClient,
-		event.GetRepo(),
-		event.GetDeployment().GetSHA(),
-		refType,
-		event.GetDeployment().GetRef(),
-		event.GetDeployment().GetTask(),
-		nil,
-		event,
+		&wctx,
 	)
 	if err != nil {
 		return http.StatusBadRequest, fmt.Sprintf("error when running workflow, %v", err)
@@ -181,16 +186,20 @@ func (h *HookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 
 	headSHA := ref.Object.GetSHA()
 
-	err = h.Runner.runWorkflow(
+	wctx := WorkflowContext{
+		Repo:        event.GetRepo(),
+		SHA:         headSHA,
+		Ref:         event.GetRef(),
+		RefType:     "tag",
+		Entrypoint:  "",
+		PRs:         nil,
+		DeployEvent: nil,
+	}
+
+	_, err = h.Runner.runWorkflow(
 		ctx,
 		ghClient,
-		event.Repo,
-		headSHA,
-		"tag",
-		event.GetRef(),
-		"",
-		nil,
-		nil,
+		&wctx,
 	)
 
 	if err != nil {
@@ -208,16 +217,20 @@ func (h *HookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 		return http.StatusBadRequest, err.Error()
 	}
 
-	err = h.Runner.runWorkflow(
+	wctx := WorkflowContext{
+		Repo:        event.GetRepo(),
+		SHA:         event.GetCheckSuite().GetHeadSHA(),
+		Ref:         *event.GetCheckSuite().HeadBranch,
+		RefType:     "branch",
+		Entrypoint:  "",
+		PRs:         event.GetCheckSuite().PullRequests,
+		DeployEvent: nil,
+	}
+
+	_, err = h.Runner.runWorkflow(
 		ctx,
 		ghClient,
-		event.Repo,
-		*event.CheckSuite.HeadSHA,
-		"branch",
-		*event.CheckSuite.HeadBranch,
-		"",
-		event.CheckSuite.PullRequests,
-		nil,
+		&wctx,
 	)
 
 	if err != nil {
@@ -266,16 +279,16 @@ func (h *HookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 	case "clearCacheBranch", "clearCache":
 		return h.webhookCheckRunRequestActionClearCache(ctx, event)
 	case "run":
-		err = h.Runner.runWorkflow(ctx,
-			ghClient,
-			event.GetRepo(),
-			event.GetCheckRun().GetHeadSHA(),
-			"branch",
-			event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
-			event.GetCheckRun().GetExternalID(),
-			event.GetCheckRun().GetCheckSuite().PullRequests,
-			nil,
-		)
+		wctx := WorkflowContext{
+			Repo:        event.GetRepo(),
+			SHA:         event.GetCheckRun().GetHeadSHA(),
+			Ref:         event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
+			RefType:     "branch",
+			Entrypoint:  event.GetCheckRun().GetExternalID(),
+			PRs:         event.GetCheckRun().GetCheckSuite().PullRequests,
+			DeployEvent: nil,
+		}
+		_, err = h.Runner.runWorkflow(ctx, ghClient, &wctx)
 	case "skip":
 		user := event.GetSender().GetLogin()
 		summary := fmt.Sprintf("User %s skipped this manual action", user)

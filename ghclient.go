@@ -1,18 +1,14 @@
 package kubeci
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
-	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v45/github"
-	"k8s.io/client-go/kubernetes/scheme"
 )
 
 type repoClient struct {
@@ -229,42 +225,4 @@ func getFile(
 		return nil, err
 	}
 	return file, nil
-}
-
-func getWorkflow(
-	ctx context.Context,
-	cd contentDownloader,
-	sha string,
-	filename string) (*workflow.Workflow, error) {
-
-	file, err := getFile(
-		ctx,
-		cd,
-		sha,
-		filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	bs := &bytes.Buffer{}
-
-	_, err = io.Copy(bs, file)
-	if err != nil {
-		return nil, err
-	}
-
-	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(bs.Bytes(), nil, nil)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode %s, %v", filename, err)
-	}
-
-	wf, ok := obj.(*workflow.Workflow)
-	if !ok {
-		return nil, fmt.Errorf("could not use %T as workflow", wf)
-	}
-
-	return wf, nil
 }
