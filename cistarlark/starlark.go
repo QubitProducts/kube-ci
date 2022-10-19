@@ -27,6 +27,7 @@ type githubContentGetter interface {
 type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
+
 type modOpener interface {
 	ModOpen(*starlark.Thread, string) (starlark.StringDict, error)
 }
@@ -51,6 +52,7 @@ func getCWU(thread *starlark.Thread) *url.URL {
 type modSrc struct {
 	builtIn     map[string]starlark.StringDict
 	predeclared starlark.StringDict
+	context     map[string]string
 
 	client githubContentGetter
 	http   httpDoer
@@ -65,7 +67,11 @@ func validateModURL(u *url.URL) error {
 		}
 	case "builtin":
 		if u.Host != "" {
-			return fmt.Errorf("host is not invalid for builtin")
+			return fmt.Errorf("host is not invalid for the builtin scheme")
+		}
+	case "context":
+		if u.Host != "" {
+			return fmt.Errorf("host is not invalid for the context scheme")
 		}
 	case "http":
 	}
@@ -87,8 +93,9 @@ func (gh *modSrc) builtInLoadFile(thread *starlark.Thread, b *starlark.Builtin, 
 
 	var res starlark.String
 	loaders := map[string]func(*starlark.Thread, *url.URL) (starlark.String, error){
-		"github": gh.openGithubFile,
-		"https":  gh.openHTTPFile,
+		"github":  gh.openGithubFile,
+		"https":   gh.openHTTPFile,
+		"context": gh.openContextFile,
 	}
 
 	loader, ok := loaders[u.Scheme]
@@ -150,6 +157,27 @@ func parseModURL(base *url.URL, name string) (*url.URL, error) {
 	}
 
 	return u, nil
+}
+
+func (gh *modSrc) openContextFile(thread *starlark.Thread, url *url.URL) (starlark.String, error) {
+	if gh.context == nil {
+		return emptyStr, fmt.Errorf("file not found in context")
+	}
+
+	str, ok := gh.context[url.Path]
+	if !ok {
+		return emptyStr, fmt.Errorf("file not found in context")
+	}
+	return starlark.String(str), nil
+}
+
+func (gh *modSrc) openContext(thread *starlark.Thread, url *url.URL) (starlark.StringDict, error) {
+	str, err := gh.openContextFile(thread, url)
+	if err != nil {
+		return nil, fmt.Errorf("reading HTTP body failed, %v", err)
+	}
+
+	return starlark.ExecFile(thread, url.String(), string(str), gh.predeclared)
 }
 
 func (gh *modSrc) openHTTPFile(thread *starlark.Thread, url *url.URL) (starlark.String, error) {
@@ -238,6 +266,7 @@ func (gh *modSrc) ModOpen(thread *starlark.Thread, name string) (starlark.String
 		"github":  gh.openGithub,
 		"https":   gh.openHTTP,
 		"builtin": gh.openBuiltin,
+		"context": gh.openContext,
 	}
 
 	loader, ok := loaders[u.Scheme]

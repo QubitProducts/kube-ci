@@ -62,7 +62,7 @@ func (f *fixture) runWebhookHandler(obj interface{}, startInformers bool, expect
 type workflowRunnerFake struct {
 }
 
-func (w *workflowRunnerFake) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, headsha, headreftype, headbranch, entrypoint string, prs []*github.PullRequest, deployevent *github.DeploymentEvent) error {
+func (w *workflowRunnerFake) runWorkflow(ctx context.Context, ghClient wfGHClient, wctx *WorkflowContext) (*workflow.Workflow, error) {
 	panic("not implemented")
 }
 

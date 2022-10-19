@@ -30,9 +30,10 @@ import (
 )
 
 type SlashHandler struct {
-	Runner     workflowRunner
-	CIFilePath string
-	Templates  TemplateSet
+	Runner        workflowRunner
+	CIContextPath string
+	CIYAMLFile    string
+	Templates     TemplateSet
 }
 
 func (s *SlashHandler) slashComment(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, body string) error {
@@ -90,17 +91,21 @@ func (s *SlashHandler) slashRun(ctx context.Context, ghClient GithubClientInterf
 
 	headsha := pr.GetHead().GetSHA()
 	headref := pr.GetHead().GetRef()
-	return s.Runner.runWorkflow(
+	wctx := WorkflowContext{
+		Repo:        event.Repo,
+		SHA:         headsha,
+		RefType:     "branch",
+		Ref:         headref,
+		Entrypoint:  "",
+		PRs:         []*github.PullRequest{pr},
+		DeployEvent: nil,
+	}
+	_, err = s.Runner.runWorkflow(
 		ctx,
 		ghClient,
-		event.Repo,
-		headsha,
-		"branch",
-		headref,
-		"",
-		[]*github.PullRequest{pr},
-		nil,
+		&wctx,
 	)
+	return err
 }
 
 func (s *SlashHandler) slashDeploy(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, args ...string) error {
@@ -155,9 +160,9 @@ func (s *SlashHandler) slashSetup(ctx context.Context, ghClient GithubClientInte
 		return errors.Wrap(err, "cannot setup ci for repository")
 	}
 
-	fileName := s.CIFilePath
+	path := s.CIContextPath
+	fileName := filepath.Join(path, s.CIYAMLFile)
 
-	path := filepath.Dir(fileName)
 	files, err := ghClient.GetRepoContents(
 		ctx,
 		path,

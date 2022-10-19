@@ -1,13 +1,15 @@
 package kubeci
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
-	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -16,7 +18,19 @@ import (
 	"github.com/google/go-github/v45/github"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes/scheme"
 )
+
+type WorkflowContext struct {
+	Repo        *github.Repository
+	Entrypoint  string
+	Ref         string
+	RefType     string
+	SHA         string
+	ContextData map[string]string
+	PRs         []*github.PullRequest
+	DeployEvent *github.DeploymentEvent
+}
 
 func wfName(org, repo, entrypoint, ref string) string {
 	// We'll generate some random info so that they are
@@ -131,22 +145,16 @@ func (ws *workflowSyncer) cancelRunningWorkflows(org, repo, branch string) {
 func (ws *workflowSyncer) decorateWorkflow(
 	wf *workflow.Workflow,
 	instID int,
-	repo *github.Repository,
-	prs []*github.PullRequest,
-	sha string,
-	refType string,
-	ref string,
-	cr *github.CheckRun,
-	entrypoint string) {
+	wctx *WorkflowContext) {
 
-	owner := repo.GetOwner().GetLogin()
-	repoName := repo.GetName()
-	gitURL := repo.GetGitURL()
-	sshURL := repo.GetSSHURL()
-	httpsURL := repo.GetCloneURL()
+	owner := wctx.Repo.GetOwner().GetLogin()
+	repoName := wctx.Repo.GetName()
+	gitURL := wctx.Repo.GetGitURL()
+	sshURL := wctx.Repo.GetSSHURL()
+	httpsURL := wctx.Repo.GetCloneURL()
 
 	wf.GenerateName = ""
-	wf.Name = wfName(owner, repoName, entrypoint, ref)
+	wf.Name = wfName(owner, repoName, wctx.Entrypoint, wctx.Ref)
 
 	if ws.config.Namespace != "" {
 		wf.Namespace = ws.config.Namespace
@@ -186,8 +194,8 @@ func (ws *workflowSyncer) decorateWorkflow(
 	}
 
 	defaultBranch := "main"
-	if repo.DefaultBranch != nil {
-		defaultBranch = *repo.DefaultBranch
+	if wctx.Repo.DefaultBranch != nil {
+		defaultBranch = *wctx.Repo.DefaultBranch
 	}
 
 	parms = append(parms, []workflow.Parameter{
@@ -213,19 +221,19 @@ func (ws *workflowSyncer) decorateWorkflow(
 		},
 		{
 			Name:  "revision",
-			Value: workflow.AnyStringPtr(sha),
+			Value: workflow.AnyStringPtr(wctx.SHA),
 		},
 		{
 			Name:  "refType",
-			Value: workflow.AnyStringPtr(refType),
+			Value: workflow.AnyStringPtr(wctx.RefType),
 		},
 		{
 			Name:  "refName",
-			Value: workflow.AnyStringPtr(ref),
+			Value: workflow.AnyStringPtr(wctx.Ref),
 		},
 		{
-			Name:  refType,
-			Value: workflow.AnyStringPtr(ref),
+			Name:  wctx.RefType,
+			Value: workflow.AnyStringPtr(wctx.Ref),
 		},
 		{
 			Name:  "repoDefaultBranch",
@@ -236,8 +244,8 @@ func (ws *workflowSyncer) decorateWorkflow(
 	prIDArg := workflow.AnyStringPtr("")
 	prBaseArg := workflow.AnyStringPtr("")
 
-	if len(prs) != 0 {
-		pr := prs[0]
+	if len(wctx.PRs) != 0 {
+		pr := wctx.PRs[0]
 		prid := strconv.Itoa(pr.GetNumber())
 		prIDArg = workflow.AnyStringPtr(prid)
 		prBaseArg = workflow.AnyStringPtr(*pr.Base.Ref)
@@ -262,21 +270,18 @@ func (ws *workflowSyncer) decorateWorkflow(
 	wf.Labels[labelManagedBy] = "kube-ci"
 	wf.Labels[labelOrg] = labelSafe(owner)
 	wf.Labels[labelRepo] = labelSafe(repoName)
-	wf.Labels[labelBranch] = labelSafe(ref)
+	wf.Labels[labelBranch] = labelSafe(wctx.Ref)
 
 	if wf.Annotations == nil {
 		wf.Annotations = make(map[string]string)
 	}
 
-	wf.Annotations[annCommit] = sha
-	wf.Annotations[annBranch] = ref
+	wf.Annotations[annCommit] = wctx.SHA
+	wf.Annotations[annBranch] = wctx.Ref
 	wf.Annotations[annRepo] = repoName
 	wf.Annotations[annOrg] = owner
 
 	wf.Annotations[annInstID] = strconv.Itoa(int(instID))
-
-	wf.Annotations[annCheckRunName] = *cr.Name
-	wf.Annotations[annCheckRunID] = strconv.Itoa(int(*cr.ID))
 }
 
 type policyRejection struct {
@@ -478,64 +483,126 @@ func (ws *workflowSyncer) lintWorkflow(wf *workflow.Workflow) (*workflow.Workflo
 	return nil, nil
 }
 
-func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, repo *github.Repository, sha, refType, ref, entrypoint string, prs []*github.PullRequest, de *github.DeploymentEvent) error {
-	org := repo.GetOwner().GetLogin()
-	name := repo.GetName()
-	wf, wfErr := getWorkflow(
+type workflowGetter interface {
+	contentDownloader
+	GetInstallID() int
+}
+
+func (ws *workflowSyncer) getCIYAML(
+	ctx context.Context,
+	cd workflowGetter,
+	wctx *WorkflowContext,
+) ([]byte, error) {
+	if wctx.ContextData != nil {
+		ciStr, ok := wctx.ContextData[ws.config.CIYAMLFile]
+		if !ok {
+		}
+	}
+
+	filename := filepath.Join(ws.config.CIContextPath, ws.config.CIYAMLFile)
+	file, err := getFile(
+		ctx,
+		cd,
+		wctx.SHA,
+		filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	bs := &bytes.Buffer{}
+
+	_, err = io.Copy(bs, file)
+	if err != nil {
+		return nil, err
+	}
+}
+
+func (ws *workflowSyncer) getWorkflow(
+	ctx context.Context,
+	cd workflowGetter,
+	wctx *WorkflowContext,
+) (*workflow.Workflow, error) {
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(bs.Bytes(), nil, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s, %v", filename, err)
+	}
+
+	wf, ok := obj.(*workflow.Workflow)
+	if !ok {
+		return nil, fmt.Errorf("could not use %T as workflow", wf)
+	}
+
+	ws.decorateWorkflow(wf, cd.GetInstallID(), wctx)
+
+	return wf, nil
+}
+
+func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, wctx *WorkflowContext) (*workflow.Workflow, error) {
+	org := wctx.Repo.GetOwner().GetLogin()
+	name := wctx.Repo.GetName()
+	wf, wfErr := ws.getWorkflow(
 		ctx,
 		ghClient,
-		sha,
-		ws.config.CIFilePath,
+		wctx,
 	)
 
-	if os.IsNotExist(wfErr) {
-		log.Printf("no %s in %s/%s (%s)", ws.config.CIFilePath, org, name, sha)
-		return nil
+	if wf != nil {
+		wf = wf.DeepCopy()
 	}
 
-	if wf != nil && !runBranchOrTag(refType, wf) {
-		log.Printf("not running %s/%s (%s) for reftype %s", org, name, sha, refType)
-		return nil
+	if wf != nil && !runBranchOrTag(wctx.RefType, wf) {
+		log.Printf("not running %s/%s (%s) for reftype %s", org, name, wctx.SHA, wctx.RefType)
+		return nil, nil
 	}
 
-	crName := defaultCheckRunName
-	epErr := ws.setupEntrypoint(entrypoint, wf, de)
+	epErr := ws.setupEntrypoint(wctx.Entrypoint, wf, wctx.DeployEvent)
 	if epErr != nil {
 		log.Printf("not running %s/%s (%s), %v",
 			org,
 			name,
-			sha,
+			wctx.SHA,
 			epErr,
 		)
 		// can't return here, we need to report the error
 	}
 
-	if wf != nil && epErr == nil {
+	crName := defaultCheckRunName
+	if epErr == nil {
 		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
 		if de != nil {
 			crName += " (deployment)"
 		}
 	}
 
-	cro := github.CreateCheckRunOptions{
-		Name:    crName,
-		HeadSHA: sha,
-		Status:  defaultCheckRunStatus,
-		Output: &github.CheckRunOutput{
-			Title:   github.String("Workflow Setup"),
-			Summary: github.String("Creating workflow"),
-		},
-	}
-
-	if wf != nil {
-		cro.ExternalID = github.String(wf.Spec.Entrypoint)
+	if wctx.DeployEvent != nil {
+		crName += " (deployment)"
 	}
 
 	title := github.String("Workflow Setup")
-	cr, crErr := ghClient.CreateCheckRun(ctx, cro)
+	cr, crErr := ghClient.CreateCheckRun(ctx,
+		github.CreateCheckRunOptions{
+			Name:       crName,
+			HeadSHA:    wctx.SHA,
+			ExternalID: github.String(wf.Spec.Entrypoint),
+			Status:     defaultCheckRunStatus,
+			Output: &github.CheckRunOutput{
+				Title:   github.String("Workflow Setup"),
+				Summary: github.String("Creating workflow"),
+			},
+		},
+	)
+
 	if crErr != nil {
 		log.Printf("Unable to create check run, %v", crErr)
-		return fmt.Errorf("creating check run failed, %w", crErr)
+		return nil, fmt.Errorf("creating check run failed, %w", crErr)
+	}
+
+	if wf != nil && cr != nil {
+		wf.Annotations[annCheckRunName] = *cr.Name
+		wf.Annotations[annCheckRunID] = strconv.Itoa(int(*cr.ID))
 	}
 
 	info := &githubInfo{
@@ -563,62 +630,49 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	if wfErr != nil {
 		msg := fmt.Errorf("unable to parse workflow, %v", wfErr)
 		checkRunError(ctx, info, msg, *title)
-		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, wfErr)
-		return nil
+		log.Printf("unable to parse workflow for %s (%s), %v", wctx.Repo, wctx.Ref, wfErr)
+		return nil, nil
 	}
 
 	if epErr != nil {
 		msg := fmt.Errorf("error finding workflow endpoint, %v", epErr)
 		checkRunError(ctx, info, msg, *title)
-		log.Printf("unable to parse workflow for %s (%s), %v", repo, ref, epErr)
-		return nil
+		log.Printf("error finding workflow endpoint for %s (%s), %v", wctx.Repo, wctx.Ref, epErr)
+		return nil, nil
 	}
 
-	if err := ws.policy(repo, ref, *title, prs); err != nil {
-		// Status: error to checkrunrun info failed - policy error
+	if err := ws.policy(wctx.Repo, wctx.Ref, *title, wctx.PRs); err != nil {
+		// Status: error to checkrun info failed - policy error
 		checkRunError(ctx, info, fmt.Errorf(err.message), *title)
 		log.Printf(err.log)
-		return nil
+		return nil, nil
 	}
 
 	ws.cancelRunningWorkflows(
 		org,
 		name,
-		ref,
-	)
-
-	wf = wf.DeepCopy()
-	ws.decorateWorkflow(
-		wf,
-		ghClient.GetInstallID(),
-		repo,
-		prs,
-		sha,
-		refType,
-		ref,
-		cr,
-		entrypoint,
+		wctx.Ref,
 	)
 
 	err := ws.storage.ensurePVC(
 		wf,
 		org,
 		name,
-		ref,
+		wctx.Ref,
 		ws.config.CacheDefaults,
 	)
 	if err != nil {
 		// Status: error to checkrun info failed - pvc create error
 		checkRunError(ctx, info, fmt.Errorf("creation of cache volume failed, %v", err), *title)
-		return err
+		return nil, err
 	}
 
 	_, err = ws.client.ArgoprojV1alpha1().Workflows(ws.config.Namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
 		checkRunError(ctx, info, fmt.Errorf("argo workflow creation failed, %v", err), *title)
 
-		return fmt.Errorf("workflow creation failed, %w", err)
+		return nil, fmt.Errorf("workflow creation failed, %w", err)
 	}
 
-	return nil
+	return wf, nil
 }
