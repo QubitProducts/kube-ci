@@ -10,6 +10,7 @@ import (
 )
 
 var rfc1035Re = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
+var workflowRegexp = regexp.MustCompile(`^(([A-Za-z0-9][-A-Za-z0-9.]*)?[A-Za-z0-9])?$`)
 
 func TestWFName(t *testing.T) {
 	var tests = []struct {
@@ -21,6 +22,7 @@ func TestWFName(t *testing.T) {
 		expected string
 	}{
 		{"QubitProducts", "kube-ci", "", "master", "kube-ci.master"},
+		{"qubitdigital", "atom-api", "", "ERBC-96-post-release-stripping-of-locale-null-from-the-db", "atom-api.erbc-96-post-release-stripping"},
 		{"QubitProducts", "kube-ci", "deploy", "master", "kube-ci.deploy.master"},
 		{"QubitProducts", "kube-ci", "deploy:migrations", "master", "kube-ci.deploy-migratio.master"},
 		{"myorg", "myrepo", "", "user-project-1234-some-really-long-branch-namme-from-some-dirt-bag-issue-tracking-system", "myrepo.user-project-1234-some-really-lon"},
@@ -43,6 +45,10 @@ func TestWFName(t *testing.T) {
 				if !rfc1035Re.MatchString(p) {
 					t.Errorf("%s in %s to match rfc1035", p, actual)
 				}
+			}
+
+			if !workflowRegexp.MatchString(actual) {
+				t.Errorf("%s does not match workflowRegexp", actual)
 			}
 
 			parts = parts[0 : len(parts)-1]
@@ -76,6 +82,9 @@ func FuzzWFName(f *testing.F) {
 			if !rfc1035Re.MatchString(p) {
 				t.Errorf("%s in %s to match rfc1035", p, actual)
 			}
+		}
+		if !workflowRegexp.MatchString(actual) {
+			t.Errorf("%s does not match workflowRegexp", actual)
 		}
 	})
 }

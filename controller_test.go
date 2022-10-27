@@ -1047,3 +1047,51 @@ func TestCreateWorkflow(t *testing.T) {
 		})
 	}
 }
+
+func TestLabelSafe(t *testing.T) {
+	var tests = []struct {
+		strs []string
+	}{
+		{[]string{"QubitProducts", "kube-ci", "", "master", "kube-ci.master"}},
+		{[]string{"ERBC-96-post-release-stripping-of-locale-null-from-the-db"}},
+		{[]string{"ERBC-967post-release-stripping-of-locale-null-from-the-db"}},
+	}
+	for i, tt := range tests {
+		tt := tt
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			actual := labelSafe(tt.strs...)
+
+			parts := strings.Split(actual, ".")
+
+			for _, p := range parts {
+				if !rfc1035Re.MatchString(p) {
+					t.Errorf("%s in %s to match rfc1035", p, actual)
+				}
+			}
+
+			if !workflowRegexp.MatchString(actual) {
+				t.Errorf("%s does not match workflowRegexp", actual)
+			}
+		})
+	}
+}
+
+func FuzzLabelSafe(f *testing.F) {
+	f.Add("QubitProducts")
+	f.Add("ERBC-96-post-release-stripping-of-locale-null-from-the-db")
+
+	f.Fuzz(func(t *testing.T, str string) {
+		actual := labelSafe(str)
+		if actual == "" {
+			return
+		}
+
+		if !rfc1035Re.MatchString(actual) {
+			t.Errorf("%s does not match rfc1035", actual)
+		}
+
+		if !workflowRegexp.MatchString(actual) {
+			t.Errorf("%s does not match workflowRegexp", actual)
+		}
+	})
+}
