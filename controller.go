@@ -219,11 +219,13 @@ type workflowSyncer struct {
 
 var sanitize = regexp.MustCompile(`[^-a-z0-9]`)
 var sanitizeToDNS = regexp.MustCompile(`^[-0-9.]*`)
+var sanitizeToDNSPref = regexp.MustCompile(`^[-.0-9]+`)
 var sanitizeToDNSSuff = regexp.MustCompile(`[-.]+$`)
 
 func escape(str string) string {
 	str = sanitize.ReplaceAllString(strings.ToLower(str), "-")
 	str = sanitizeToDNS.ReplaceAllString(str, "")
+	str = sanitizeToDNSPref.ReplaceAllString(str, "")
 	str = sanitizeToDNSSuff.ReplaceAllString(str, "")
 	return str
 }
@@ -246,7 +248,8 @@ func labelSafeLen(maxLen int, strs ...string) string {
 		str = str[strOver*-1:]
 	}
 
-	// Need to tidy up the end incase we got unlucky.
+	// Need to tidy up the start and end incase we got unlucky.
+	str = sanitizeToDNSPref.ReplaceAllString(str, "")
 	str = sanitizeToDNSSuff.ReplaceAllString(str, "")
 	return str
 }

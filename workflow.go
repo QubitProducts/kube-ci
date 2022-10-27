@@ -23,7 +23,10 @@ func wfName(org, repo, entrypoint, ref string) string {
 	// guaranteed unique
 	c := 10
 	b := make([]byte, c)
-	_, _ = rand.Read(b)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic(err)
+	}
 
 	h := sha1.New()
 	h.Write(b)
