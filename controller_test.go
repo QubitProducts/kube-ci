@@ -1078,16 +1078,25 @@ func TestLabelSafe(t *testing.T) {
 
 func FuzzLabelSafe(f *testing.F) {
 	f.Add("QubitProducts")
+	f.Add("QubitProducts,something")
 	f.Add("ERBC-96-post-release-stripping-of-locale-null-from-the-db")
 
 	f.Fuzz(func(t *testing.T, str string) {
-		actual := labelSafe(str)
+		// since fuzz functions can't take []string, we'll split the input
+		// on `,`
+
+		strs := strings.Split(str, ",")
+		actual := labelSafe(strs...)
 		if actual == "" {
 			return
 		}
 
-		if !rfc1035Re.MatchString(actual) {
-			t.Errorf("%s does not match rfc1035", actual)
+		parts := strings.Split(actual, ".")
+
+		for _, p := range parts {
+			if !rfc1035Re.MatchString(p) {
+				t.Errorf("%s in %s to match rfc1035", p, actual)
+			}
 		}
 
 		if !workflowRegexp.MatchString(actual) {
