@@ -130,12 +130,21 @@ func (h *HookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		return http.StatusOK, "Ignored, set kube-ci.run to launch a CI task"
 	}
 
+	refType := payload.KubeCI.RefType
+	switch refType {
+	case "branch", "tag":
+	case "":
+		refType = "branch"
+	default:
+		return http.StatusBadRequest, "ignored, ref_type must be branch or tag"
+	}
+
 	// Run a workflow to perform the deploy
 	err = h.Runner.runWorkflow(ctx,
 		ghClient,
 		event.GetRepo(),
 		event.GetDeployment().GetSHA(),
-		"", // TODO - the ref could be a tag or a branch
+		refType,
 		event.GetDeployment().GetRef(),
 		event.GetDeployment().GetTask(),
 		nil,
