@@ -113,6 +113,10 @@ func (ts TemplateSet) Help() string {
 	return body
 }
 
+type APIConfig struct {
+	DefaultInstallID int `yaml:"defaultInstallID"`
+}
+
 // Config defines our configuration file format
 type Config struct {
 	CIContextPath string            `yaml:"ciContextPath"`
@@ -132,6 +136,8 @@ type Config struct {
 	NonInteractiveBranches string `yaml:"nonInteractiveBranches"`
 
 	ExtraParameters map[string]string `yaml:"extraParameters"`
+
+	API APIConfig `yaml:"api"`
 
 	buildBranches          *regexp.Regexp
 	manualTemplates        *regexp.Regexp
