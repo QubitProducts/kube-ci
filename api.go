@@ -1,10 +1,13 @@
 package kubeci
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
 	"encoding/json"
+
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 )
 
 type APIHandler struct {
@@ -16,21 +19,64 @@ type APIHandler struct {
 	UIBase       string
 	GitHubSecret []byte
 	AppID        int64
+	InstallID    int
 }
 
 type RunResp struct {
+	Workflow *workflow.Workflow `json:"workflow,omitempty"`
 }
 
 type RunRequest struct {
-	Org       string            `json:"org"`
-	Repo      string            `json:"repo"`
-	Ref       string            `json:"ref"`
-	Hash      string            `json:"hash"`
-	CIContext map[string]string `json:"ci_context"`
+	Org        string            `json:"org"`
+	Repo       string            `json:"repo"`
+	Ref        string            `json:"ref"`
+	RefType    string            `json:"ref_type,omitempty"`
+	Hash       string            `json:"hash"`
+	CIContext  map[string]string `json:"ci_context"`
+	Entrypoint string            `json:"entrypoint"`
+	Run        bool              `json:"run"`
 }
 
-func (h *APIHandler) handleRun(w http.ResponseWriter, r *RunRequest) (RunResp, error) {
-	return RunResp{}, nil
+func (h *APIHandler) handleRun(ctx context.Context, w http.ResponseWriter, r *RunRequest) (RunResp, error) {
+	ghClient, err := h.Clients.getClient(r.Org, h.InstallID, r.Repo)
+	if err != nil {
+		return RunResp{}, fmt.Errorf("could not get github client, %w", err)
+	}
+
+	repo, err := ghClient.GetRepo(ctx)
+	if err != nil {
+		return RunResp{}, fmt.Errorf("could not get github repo, %w", err)
+	}
+
+	refType := "branch"
+	if r.RefType != "" {
+		refType = r.RefType
+	}
+
+	wctx := WorkflowContext{
+		Repo:        repo,
+		Ref:         r.Ref,
+		RefType:     refType,
+		SHA:         r.Hash,
+		Entrypoint:  r.Entrypoint,
+		ContextData: r.CIContext,
+
+		DeployEvent: nil,
+		PRs:         nil,
+	}
+
+	wf, err := h.Runner.getWorkflow(ctx, ghClient, &wctx)
+	if err != nil {
+		return RunResp{}, fmt.Errorf("could not get workflow, %w", err)
+	}
+
+	if !r.Run {
+		return RunResp{
+			Workflow: wf,
+		}, nil
+	}
+
+	return RunResp{}, fmt.Errorf("only dry run is supported at present")
 }
 
 func (h *APIHandler) HandleRun(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +105,7 @@ func (h *APIHandler) HandleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.handleRun(w, &req)
+	resp, err := h.handleRun(r.Context(), w, &req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("cannot decode input, %v", err), http.StatusBadRequest)
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -496,7 +497,9 @@ func (ws *workflowSyncer) getCIYAML(
 	if wctx.ContextData != nil {
 		ciStr, ok := wctx.ContextData[ws.config.CIYAMLFile]
 		if !ok {
+			return nil, fmt.Errorf("file %s found in provided context data, %w", ws.config.CIYAMLFile, os.ErrNotExist)
 		}
+		return []byte(ciStr), nil
 	}
 
 	filename := filepath.Join(ws.config.CIContextPath, ws.config.CIYAMLFile)
@@ -516,6 +519,7 @@ func (ws *workflowSyncer) getCIYAML(
 	if err != nil {
 		return nil, err
 	}
+	return bs.Bytes(), nil
 }
 
 func (ws *workflowSyncer) getWorkflow(
@@ -523,11 +527,16 @@ func (ws *workflowSyncer) getWorkflow(
 	cd workflowGetter,
 	wctx *WorkflowContext,
 ) (*workflow.Workflow, error) {
+	bs, err := ws.getCIYAML(ctx, cd, wctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CI config %s, %v", ws.config.CIYAMLFile, err)
+	}
+
 	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(bs.Bytes(), nil, nil)
+	obj, _, err := decode(bs, nil, nil)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode %s, %v", filename, err)
+		return nil, fmt.Errorf("failed to decode %s, %v", ws.config.CIYAMLFile, err)
 	}
 
 	wf, ok := obj.(*workflow.Workflow)
@@ -572,7 +581,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	crName := defaultCheckRunName
 	if epErr == nil {
 		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
-		if de != nil {
+		if wctx.DeployEvent != nil {
 			crName += " (deployment)"
 		}
 	}

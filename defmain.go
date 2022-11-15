@@ -268,6 +268,18 @@ func DefaultMain() {
 		GitHubSecret: secret,
 	}
 
+	apiHandler := NewAPIHandler(APIHandler{
+		Storage: storage,
+		Clients: ghSrc,
+		Runner:  wfSyncer,
+		Slash:   slashHandler,
+
+		UIBase:       *argoUIBaseURL,
+		GitHubSecret: secret,
+		AppID:        *appID,
+		InstallID:    wfconfig.API.DefaultInstallID,
+	})
+
 	mux.HandleFunc("/webhooks/github",
 		promhttp.InstrumentHandlerDuration(
 			duration,
@@ -275,6 +287,7 @@ func DefaultMain() {
 
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/status", sh)
+	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", apiHandler))
 
 	server := &http.Server{
 		Addr:         ":8080",
