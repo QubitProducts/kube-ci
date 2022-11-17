@@ -701,7 +701,7 @@ func createsNextCheckRun(task string) setupf {
 		github.CreateCheckRunOptions{
 			Name:       "Workflow - " + task,
 			HeadSHA:    "50dbe643f76dcd92c4c935455a46687c903e1b7d",
-			Conclusion: github.String("action_required"),
+			Conclusion: github.String("neutral"),
 			ExternalID: github.String(task),
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Manual Step"),
@@ -783,6 +783,7 @@ func TestCreateWorkflow(t *testing.T) {
 	var config Config
 	config.deployTemplates = regexp.MustCompile("^$")
 	config.manualTemplates = regexp.MustCompile("^$")
+	config.essentialTemplates = regexp.MustCompile("^$")
 	config.productionEnvironments = regexp.MustCompile("^$")
 	config.nonInteractiveBranches = regexp.MustCompile("^(production|staging)$")
 
