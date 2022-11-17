@@ -56,6 +56,8 @@ Cache volume:
 Manual step, and deployment controls:
 - kube-ci.qutics.com/manualTemplates: override the set of templates that will
   be presented as manually run check-run steps.
+- kube-ci.qutics.com/essentialTemplates: override the set of manual templates that will
+  be fail the check until run (they are marked as conclusion `action_required`)
 - kube-ci.qutics.com/deployTemplates: override the set of templates that will
   be tracked via a GitHub deployment.
 - kube-ci.qutics.com/nonInteractiveBranches: Do not present manual check-run
@@ -103,8 +105,12 @@ annotations:
 ## Manual Check Run steps
 
 On successful completion of the default template of your workflow, kube-ci can present an extra set
-of check-runs, set to "needs_action". The user can then run, or skip those steps using buttons on the
+of check-runs, set to "neutral". The user can then run, or skip those steps using buttons on the
 check-run. If the user clicks "Run", a new argo-workflow will be run for that step.
+
+Manual check run steps default to "neutral" conclusion, which present as grey, and will not mark the check
+as failing. If you want to force a given template to be run, you can set the essentialTemplates configuration
+, or override the value using the workflow annotation.
 
 Check runs are not presented in the following circumstances:
 - If the default entrypoint workflow fails

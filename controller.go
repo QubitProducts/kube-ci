@@ -66,6 +66,7 @@ var (
 	annRunTag    = "kube-ci.qutics.com/runForTag"
 
 	annManualTemplates        = "kube-ci.qutics.com/manualTemplates"
+	annEssentialTemplates     = "kube-ci.qutics.com/essentialTemplates"
 	annDeployTemplates        = "kube-ci.qutics.com/deployTemplates"
 	annNonInteractiveBranches = "kube-ci.qutics.com/nonInteractiveBranches"
 
@@ -130,6 +131,7 @@ type Config struct {
 	BuildBranches string            `yaml:"buildBranches"`
 
 	ManualTemplates        string `yaml:"manualTemplates"`
+	EssentialTemplates     string `yaml:"essentialTemplates"`
 	DeployTemplates        string `yaml:"deployTemplates"`
 	ProductionEnvironments string `yaml:"productionEnvironments"`
 	EnvironmentParameter   string `yaml:"environmentParameter"`
@@ -141,6 +143,7 @@ type Config struct {
 
 	buildBranches          *regexp.Regexp
 	manualTemplates        *regexp.Regexp
+	essentialTemplates     *regexp.Regexp
 	deployTemplates        *regexp.Regexp
 	productionEnvironments *regexp.Regexp
 	nonInteractiveBranches *regexp.Regexp
@@ -155,6 +158,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 		BuildDraftPRs:          false,
 		BuildBranches:          "master",
 		ManualTemplates:        "^$",
+		EssentialTemplates:     "^$",
 		DeployTemplates:        "^$",
 		ProductionEnvironments: "^production$",
 		EnvironmentParameter:   "environment",
@@ -179,7 +183,12 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 
 	wfconfig.manualTemplates, err = regexp.Compile(wfconfig.ManualTemplates)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile actionTemplates regexp, %w", err)
+		return nil, fmt.Errorf("failed to compile manualTemplates regexp, %w", err)
+	}
+
+	wfconfig.essentialTemplates, err = regexp.Compile(wfconfig.EssentialTemplates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile essentialTemplates regexp, %w", err)
 	}
 
 	wfconfig.deployTemplates, err = regexp.Compile(wfconfig.DeployTemplates)
@@ -938,6 +947,15 @@ func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *work
 		}
 	}
 
+	essentialRegex := ws.config.essentialTemplates
+	if str := wf.Annotations[annEssentialTemplates]; str != "" {
+		templRegex, err = regexp.Compile(str)
+		if err != nil {
+			templRegex = ws.config.essentialTemplates
+			warnings = append(warnings, fmt.Sprintf("ignoring bad essential template regexp, %v", err))
+		}
+	}
+
 	var nextTasks []string
 	if ok {
 		for _, t := range wf.Spec.Templates {
@@ -959,10 +977,14 @@ func (ws *workflowSyncer) nextCheckRunsForWorkflow(ctx context.Context, wf *work
 	}
 
 	for _, task := range nextTasks {
+		conclusion := "neutral"
+		if essentialRegex.MatchString(task) {
+			conclusion = "action_required"
+		}
 		_, err := ghInfo.ghClient.CreateCheckRun(ctx, github.CreateCheckRunOptions{
 			Name:       fmt.Sprintf("Workflow - %s", task),
 			HeadSHA:    ghInfo.headSHA,
-			Conclusion: github.String("action_required"),
+			Conclusion: github.String(conclusion),
 			ExternalID: github.String(task),
 			Actions: []*github.CheckRunAction{
 				{
