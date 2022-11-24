@@ -5,7 +5,6 @@
 package cistarlark
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -21,7 +20,7 @@ import (
 )
 
 type githubContentGetter interface {
-	DownloadContents(ctx context.Context, org, repo, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
+	GetContents(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (fileContent *github.RepositoryContent, directoryContent []*github.RepositoryContent, resp *github.Response, err error)
 }
 
 type httpDoer interface {
@@ -56,6 +55,28 @@ type modSrc struct {
 
 	client githubContentGetter
 	http   httpDoer
+}
+
+func newModSource(http *http.Client) *modSrc {
+
+	ghc := github.NewClient(http)
+
+	return &modSrc{
+		client: ghc.Repositories,
+		http:   http,
+	}
+}
+
+func (gh *modSrc) SetBuiltIn(builtIn map[string]starlark.StringDict) {
+	gh.builtIn = builtIn
+}
+
+func (gh *modSrc) SetPredeclared(predeclared starlark.StringDict) {
+	gh.predeclared = predeclared
+}
+
+func (gh *modSrc) SetContext(cntx map[string]string) {
+	gh.context = cntx
 }
 
 func validateModURL(u *url.URL) error {
@@ -216,7 +237,7 @@ func (gh *modSrc) openGithubFile(thread *starlark.Thread, url *url.URL) (starlar
 	repo, org, _ := strings.Cut(url.Host, ".")
 	ref := url.Query().Get("ref")
 
-	reader, err := gh.client.DownloadContents(
+	file, _, _, err := gh.client.GetContents(
 		ctx,
 		org,
 		repo,
@@ -229,10 +250,12 @@ func (gh *modSrc) openGithubFile(thread *starlark.Thread, url *url.URL) (starlar
 		return emptyStr, err
 	}
 
-	buf := bytes.NewBuffer(nil)
-	io.Copy(buf, reader)
+	str, err := file.GetContent()
+	if err != nil {
+		return emptyStr, err
+	}
 
-	return starlark.String(buf.String()), nil
+	return starlark.String(str), nil
 }
 
 func (gh *modSrc) openGithub(thread *starlark.Thread, url *url.URL) (starlark.StringDict, error) {
