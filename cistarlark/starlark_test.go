@@ -2,6 +2,7 @@ package cistarlark
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,12 +11,16 @@ import (
 	"net/url"
 	"testing"
 
+	argoScheme "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned/scheme"
 	"github.com/google/go-github/v45/github"
-	starlibjson "github.com/qri-io/starlib/encoding/json"
-	starlibyaml "github.com/qri-io/starlib/encoding/yaml"
-	starlibre "github.com/qri-io/starlib/re"
-	"go.starlark.net/starlark"
+	"k8s.io/client-go/kubernetes/scheme"
 )
+
+func init() {
+	if err := argoScheme.AddToScheme(scheme.Scheme); err != nil {
+		panic(err)
+	}
+}
 
 type mockHTTP map[string]string
 
@@ -84,15 +89,6 @@ func (m *mockHTTP) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestStarlark(t *testing.T) {
-	yaml, _ := starlibyaml.LoadModule()
-	re, _ := starlibre.LoadModule()
-
-	builtins := map[string]starlark.StringDict{
-		"/" + starlibyaml.ModuleName: yaml,
-		"/" + starlibjson.ModuleName: starlibjson.Module.Members,
-		"/" + starlibre.ModuleName:   re,
-	}
-
 	mock := &mockHTTP{}
 	mock.contentAddGithubContent(
 		"myorg",
@@ -108,50 +104,6 @@ func TestStarlark(t *testing.T) {
 load("github://myrepo2.myorg/testdata/thing.star?ref=testpr", "data")
 working = data
 		`
-
-	/*
-		mock.contentAddGithubContent(
-			"myorg",
-			"myrepo",
-			"mypr",
-			"/.kube-ci",
-			map[string]string{
-				"ci.yaml":   ``,
-				"test.star": testStar,
-				"test.json": `{"hello": "world"}`,
-			},
-		)
-	*/
-
-	ciContext := map[string]string{
-		"/ci.yaml":   ``,
-		"/test.star": testStar,
-		"/test.json": `{"hello": "world"}`,
-	}
-
-	src := newModSource(&http.Client{Transport: mock})
-
-	predeclared := starlark.StringDict{
-		"workflow": starlark.String("world"),
-		"loadFile": starlark.NewBuiltin("loadFile", src.builtInLoadFile),
-	}
-
-	// This dictionary defines the pre-declared environment.
-	src.SetPredeclared(predeclared)
-	src.SetBuiltIn(builtins)
-	src.SetContext(ciContext)
-
-	loader := MakeLoad(src)
-
-	// The Thread defines the behavior of the built-in 'print' function.
-	thread := &starlark.Thread{
-		Name:  "main",
-		Print: func(_ *starlark.Thread, msg string) { t.Logf(msg) },
-		Load:  loader,
-	}
-	u, _ := url.Parse("context:///ci.star")
-	setCWU(thread, u)
-
 	const script = `
 load("builtin:///re.star", "re")
 load("builtin:///encoding/json.star", "decode")
@@ -163,18 +115,35 @@ myre = re.compile("thing(.+)")
 match = myre.match("thing-something")
 
 squares = [x*x for x in range(10)]
-workflow = {"something": "something"}
-workflow["working"] =  working
 
 jsonStr = loadFile("/test.json")
 json = decode(jsonStr)
 
-wf = yaml.loads(loadFile("/ci.yaml"))
-
+workflow = yaml.loads(loadFile("/ci.yaml"))
 `
-	val, err := starlark.ExecFile(thread, "main", script, src.predeclared)
-	if err != nil {
-		t.Fatalf("err from starlark, %v", err)
+
+	ciYaml := `
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+spec:
+  arguments: {}
+  entrypoint: test
+  templates:
+  - name: test
+`
+	ciContext := map[string]string{
+		"/ci.star":   script,
+		"/ci.yaml":   ciYaml,
+		"/test.star": testStar,
+		"/test.json": `{"hello": "world"}`,
 	}
-	t.Logf("val: %s", val)
+
+	client := &http.Client{Transport: mock}
+	wf, err := LoadWorkflow(context.Background(), client, "/ci.star", ciContext)
+
+	if err != nil {
+		t.Fatalf("LoadWorkflow failed, %v", err)
+	}
+
+	t.Logf("wf: %#v", wf)
 }
