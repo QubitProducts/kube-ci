@@ -6,6 +6,7 @@ package cistarlark
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,7 +17,13 @@ import (
 	"unsafe"
 
 	"github.com/google/go-github/v45/github"
+	starlibjson "github.com/qri-io/starlib/encoding/json"
+	starlibyaml "github.com/qri-io/starlib/encoding/yaml"
+	starlibre "github.com/qri-io/starlib/re"
 	"go.starlark.net/starlark"
+	"k8s.io/client-go/kubernetes/scheme"
+
+	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 )
 
 type githubContentGetter interface {
@@ -453,4 +460,150 @@ func MakeLoad(src modOpener) func(thread *starlark.Thread, module string) (starl
 	return func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
 		return modCache.Load(thread, module)
 	}
+}
+
+func convertValueToJSON(iv starlark.Value) (interface{}, error) {
+	switch v := iv.(type) {
+	case *starlark.Dict:
+		return convertDictToJSON(v)
+	case starlark.String:
+		return string(v), nil
+	case starlark.Bytes:
+		return []byte(v), nil
+	case starlark.Bool:
+		return bool(v), nil
+	case starlark.Int, starlark.Float:
+		f, _ := starlark.AsFloat(iv)
+		return f, nil
+	case *starlark.List:
+		return convertListToJSON(v)
+	case starlark.NoneType, *starlark.Builtin:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("could not convert %T to starlark type", iv)
+	}
+}
+
+func convertListToJSON(l *starlark.List) ([]interface{}, error) {
+	res := make([]interface{}, l.Len())
+	for i := 0; i < l.Len(); i++ {
+		var err error
+		res[i], err = convertValueToJSON(l.Index(i))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func convertDictToJSON(v *starlark.Dict) (map[string]interface{}, error) {
+	res := map[string]interface{}{}
+	for _, knv := range v.Keys() {
+		kv, ok, err := v.Get(knv)
+		if !ok {
+			panic("no idea what happened")
+		}
+		if err != nil {
+			panic("no idea what happened")
+		}
+		jv, err := convertValueToJSON(kv)
+		if err != nil {
+			panic("no idea what happened")
+		}
+
+		switch k := knv.(type) {
+		case starlark.String:
+			res[string(k)] = jv
+		default:
+			continue
+		}
+	}
+	return res, nil
+}
+
+func ConvertToWorkflow(v starlark.Value) (*workflow.Workflow, error) {
+	wvDict, ok := v.(*starlark.Dict)
+	if !ok {
+		return nil, fmt.Errorf("workflow value is not a dictinoary")
+	}
+
+	js, err := convertDictToJSON(wvDict)
+	if err != nil {
+		return nil, fmt.Errorf("could not convert dictionary to json object, %v", err)
+	}
+
+	bs, err := json.Marshal(js)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal object to JSON, %v", err)
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(bs, nil, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("could not decode JSON to kubernetes object, %v", err)
+	}
+
+	wf, ok := obj.(*workflow.Workflow)
+	if !ok {
+		return nil, fmt.Errorf("could not use %T as workflow", wf)
+	}
+
+	return wf, nil
+}
+
+func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext map[string]string) (*workflow.Workflow, error) {
+	yaml, _ := starlibyaml.LoadModule()
+	re, _ := starlibre.LoadModule()
+
+	builtins := map[string]starlark.StringDict{
+		"/" + starlibyaml.ModuleName: yaml,
+		"/" + starlibjson.ModuleName: starlibjson.Module.Members,
+		"/" + starlibre.ModuleName:   re,
+	}
+
+	src := newModSource(hc)
+
+	predeclared := starlark.StringDict{
+		"loadFile": starlark.NewBuiltin("loadFile", src.builtInLoadFile),
+	}
+
+	// This dictionary defines the pre-declared environment.
+	src.SetPredeclared(predeclared)
+	src.SetBuiltIn(builtins)
+	src.SetContext(ciContext)
+
+	loader := MakeLoad(src)
+
+	// The Thread defines the behavior of the built-in 'print' function.
+	thread := &starlark.Thread{
+		Name: "main",
+		//Print: func(_ *starlark.Thread, msg string) { t.Logf(msg) },
+		Load: loader,
+	}
+
+	u, _ := url.Parse(fmt.Sprintf("context:///%s", fn))
+	setCWU(thread, u)
+
+	script, ok := ciContext[fn]
+	if !ok {
+		return nil, fmt.Errorf("file %s is not present in the CI context", fn)
+	}
+
+	val, err := starlark.ExecFile(thread, "main", script, src.predeclared)
+	if err != nil {
+		return nil, err
+	}
+
+	if !val.Has("workflow") {
+		return nil, fmt.Errorf("starlark result must contain 'workflow', %v", err)
+	}
+	wv := val["workflow"]
+
+	wf, err := ConvertToWorkflow(wv)
+	if err != nil {
+		return nil, fmt.Errorf("starlark result could not be marshalled to a workflow, %v", err)
+	}
+
+	return wf, nil
 }
