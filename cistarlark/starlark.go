@@ -17,11 +17,15 @@ import (
 	"unsafe"
 
 	"github.com/google/go-github/v45/github"
-	starlibjson "github.com/qri-io/starlib/encoding/json"
-	starlibyaml "github.com/qri-io/starlib/encoding/yaml"
-	starlibre "github.com/qri-io/starlib/re"
 	"go.starlark.net/starlark"
 	"k8s.io/client-go/kubernetes/scheme"
+
+	starlibyaml "github.com/qri-io/starlib/encoding/yaml"
+	starlibre "github.com/qri-io/starlib/re"
+	starlibjson "go.starlark.net/lib/json"
+	starlibmath "go.starlark.net/lib/math"
+	starlibtime "go.starlark.net/lib/time"
+	"go.starlark.net/starlarkstruct"
 
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 )
@@ -139,7 +143,7 @@ func (gh *modSrc) builtInLoadFile(thread *starlark.Thread, b *starlark.Builtin, 
 }
 
 // Open loads content from git, you can use
-// "builtin:///module.star" - load a kube-ci built in
+// "builtin:///module" - load a kube-ci built in
 // "file.star" -  from your .kube-ci directory, current ref
 // "/file.star" -  from your the root of your repo, current ref
 // "https://somehost/file.star" -  (bad idea?
@@ -556,15 +560,24 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext map
 	yaml, _ := starlibyaml.LoadModule()
 	re, _ := starlibre.LoadModule()
 
+	// There should be a better way to inject these
 	builtins := map[string]starlark.StringDict{
-		"/" + starlibyaml.ModuleName: yaml,
-		"/" + starlibjson.ModuleName: starlibjson.Module.Members,
-		"/" + starlibre.ModuleName:   re,
+		// The modules from qri have an annoying to use internal structure that
+		// stutters the name
+		"/encoding/yaml": yaml,
+		"/re":            re,
+
+		"/encoding/json": starlibjson.Module.Members,
+		"/math":          starlibmath.Module.Members,
+		"/time":          starlibtime.Module.Members,
 	}
 
 	src := newModSource(hc)
 
 	predeclared := starlark.StringDict{
+		"struct": starlark.NewBuiltin("struct", starlarkstruct.Make),
+		"module": starlark.NewBuiltin("module", starlarkstruct.MakeModule),
+
 		"loadFile": starlark.NewBuiltin("loadFile", src.builtInLoadFile),
 	}
 
