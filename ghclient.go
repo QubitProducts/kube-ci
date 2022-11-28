@@ -2,10 +2,7 @@ package kubeci
 
 import (
 	"context"
-	"io"
 	"log"
-	"net/http"
-	"os"
 	"time"
 
 	"github.com/google/go-github/v45/github"
@@ -143,28 +140,7 @@ func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
 	return ok, err
 }
 
-func (r *repoClient) DownloadRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
-	return r.DownloadContents(
-		ctx,
-		r.org,
-		r.repo,
-		filepath,
-		opts,
-	)
-}
-
-func (r *repoClient) DownloadContents(ctx context.Context, org, repo, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
-	rc, _, err := r.client.Repositories.DownloadContents(
-		ctx,
-		org,
-		repo,
-		filepath,
-		opts,
-	)
-	return rc, err
-}
-
-func (r *repoClient) GetRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
+func (r *repoClient) GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
 	_, files, _, err := r.client.Repositories.GetContents(
 		ctx,
 		r.org,
@@ -201,28 +177,5 @@ func (r *repoClient) CreateIssueComment(ctx context.Context, issueID int, opts *
 }
 
 type contentDownloader interface {
-	DownloadRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error)
-}
-
-func getFile(
-	ctx context.Context,
-	cd contentDownloader,
-	sha string,
-	filename string) (io.ReadCloser, error) {
-
-	file, err := cd.DownloadRepoContents(
-		ctx,
-		filename,
-		&github.RepositoryContentGetOptions{
-			Ref: sha,
-		})
-	if err != nil {
-		if ghErr, ok := err.(*github.ErrorResponse); ok {
-			if ghErr.Response.StatusCode == http.StatusNotFound {
-				return nil, os.ErrNotExist
-			}
-		}
-		return nil, err
-	}
-	return file, nil
+	GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error)
 }

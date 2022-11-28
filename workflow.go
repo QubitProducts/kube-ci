@@ -1,16 +1,13 @@
 package kubeci
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -489,37 +486,49 @@ type workflowGetter interface {
 	GetInstallID() int
 }
 
+func (ws *workflowSyncer) getRepoCIContext(
+	ctx context.Context,
+	cd workflowGetter,
+	wctx *WorkflowContext,
+) (map[string]string, error) {
+	cnts, err := cd.GetContents(ctx, ws.config.CIContextPath, &github.RepositoryContentGetOptions{
+		Ref: wctx.Ref,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch repository CI context, %v", err)
+	}
+
+	res := make(map[string]string)
+	for _, cnt := range cnts {
+		bs, err := cnt.GetContent()
+		if err != nil {
+			return nil, fmt.Errorf("could not fetch repository CI context, %v", err)
+		}
+		res[cnt.GetName()] = bs
+	}
+
+	return res, nil
+}
+
 func (ws *workflowSyncer) getCIYAML(
 	ctx context.Context,
 	cd workflowGetter,
 	wctx *WorkflowContext,
 ) ([]byte, error) {
-	if wctx.ContextData != nil {
-		ciStr, ok := wctx.ContextData[ws.config.CIYAMLFile]
-		if !ok {
+	var err error
+	ciFiles := wctx.ContextData
+	if ciFiles == nil {
+		ciFiles, err = ws.getRepoCIContext(ctx, cd, wctx)
+		if err != nil {
 			return nil, fmt.Errorf("file %s found in provided context data, %w", ws.config.CIYAMLFile, os.ErrNotExist)
 		}
-		return []byte(ciStr), nil
 	}
 
-	filename := filepath.Join(ws.config.CIContextPath, ws.config.CIYAMLFile)
-	file, err := getFile(
-		ctx,
-		cd,
-		wctx.SHA,
-		filename)
-	if err != nil {
-		return nil, err
+	ciStr, ok := ciFiles[ws.config.CIYAMLFile]
+	if !ok {
+		return nil, fmt.Errorf("file %s found in CI context, %w", ws.config.CIYAMLFile, os.ErrNotExist)
 	}
-	defer file.Close()
-
-	bs := &bytes.Buffer{}
-
-	_, err = io.Copy(bs, file)
-	if err != nil {
-		return nil, err
-	}
-	return bs.Bytes(), nil
+	return []byte(ciStr), nil
 }
 
 func (ws *workflowSyncer) getWorkflow(
