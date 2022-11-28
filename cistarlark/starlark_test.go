@@ -105,9 +105,10 @@ load("github://myrepo2.myorg/testdata/thing.star?ref=testpr", "data")
 working = data
 		`
 	const script = `
-load("builtin:///re.star", "re")
-load("builtin:///encoding/json.star", "decode")
-load("builtin:///encoding/yaml.star", "yaml")
+load("builtin:///re", "re")
+load("builtin:///encoding/yaml", "yaml")
+
+load("builtin:///encoding/json", "decode")
 load("/test.star", "working")
 print("hello, world")
 
@@ -119,7 +120,15 @@ squares = [x*x for x in range(10)]
 jsonStr = loadFile("/test.json")
 json = decode(jsonStr)
 
-workflow = yaml.loads(loadFile("/ci.yaml"))
+# workflow = yaml.loads(loadFile("/ci.yaml"))
+entrypoint = "test"
+workflow = {
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind": "Workflow",
+		"spec": {
+				"arguments": {},
+				"entrypoint": entrypoint,
+				"templates": [ { "name": "test"} ] } }
 `
 
 	ciYaml := `
@@ -145,5 +154,6 @@ spec:
 		t.Fatalf("LoadWorkflow failed, %v", err)
 	}
 
-	t.Logf("wf: %#v", wf)
+	bs, _ := json.Marshal(wf)
+	t.Logf("wf:\n%s", bs)
 }
