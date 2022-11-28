@@ -1,10 +1,8 @@
 package kubeci
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"testing"
 
@@ -101,35 +99,6 @@ func (tgi *testGHClientInterface) IsMember(ctx context.Context, user string) (bo
 	panic("not implemented") // TODO: Implement
 }
 
-func (tgi *testGHClientInterface) DownloadRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
-	return tgi.DownloadContents(ctx, tgi.org, tgi.repo, filepath, opts)
-}
-
-func (tgi *testGHClientInterface) DownloadContents(ctx context.Context, org, repo, filepath string, opts *github.RepositoryContentGetOptions) (io.ReadCloser, error) {
-	key := repoContentKey{
-		org:  org,
-		repo: repo,
-		ref:  opts.Ref,
-	}
-	repoCnt, ok := tgi.src.content[key]
-	if !ok {
-		err := fmt.Errorf("can't find ref %s/%s %s, %w", key.org, key.repo, key.ref, os.ErrNotExist)
-		tgi.src.addGithubCall("get_contents", err, nil, key.org, key.repo, opts)
-		return nil, err
-	}
-
-	str, ok := repoCnt[filepath]
-	if !ok {
-		err := fmt.Errorf("file not in org/repo, %w", os.ErrNotExist)
-		tgi.src.addGithubCall("get_contents", err, nil, key.org, key.repo, opts)
-		return nil, err
-	}
-
-	res := io.NopCloser(bytes.NewBufferString(str))
-	tgi.src.addGithubCall("get_contents", nil, res, key.org, key.repo, opts)
-	return res, nil
-}
-
 func (tgi *testGHClientInterface) CreateFile(ctx context.Context, filepath string, opts *github.RepositoryContentFileOptions) error {
 	panic("not implemented") // TODO: Implement
 }
@@ -145,7 +114,7 @@ func (tgi *testGHClientInterface) GetRepo(ctx context.Context) (*github.Reposito
 	return res, nil
 }
 
-func (tgi *testGHClientInterface) GetRepoContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
+func (tgi *testGHClientInterface) GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
 	key := repoContentKey{
 		org:  tgi.org,
 		repo: tgi.repo,

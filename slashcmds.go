@@ -163,7 +163,7 @@ func (s *SlashHandler) slashSetup(ctx context.Context, ghClient GithubClientInte
 	path := s.CIContextPath
 	fileName := filepath.Join(path, s.CIYAMLFile)
 
-	files, err := ghClient.GetRepoContents(
+	files, err := ghClient.GetContents(
 		ctx,
 		path,
 		&github.RepositoryContentGetOptions{
