@@ -556,7 +556,24 @@ func ConvertToWorkflow(v starlark.Value) (*workflow.Workflow, error) {
 	return wf, nil
 }
 
-func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext map[string]string) (*workflow.Workflow, error) {
+type GithubEvent interface {
+	GetInstallation() *github.Installation
+	GetRepo() *github.Repository
+	GetSender() *github.User
+}
+
+type WorkflowContext struct {
+	Repo        *github.Repository
+	Entrypoint  string
+	Ref         string
+	RefType     string
+	SHA         string
+	ContextData map[string]string
+	PRs         []*github.PullRequest
+	Event       GithubEvent
+}
+
+func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext WorkflowContext) (*workflow.Workflow, error) {
 	yaml, _ := starlibyaml.LoadModule()
 	re, _ := starlibre.LoadModule()
 
@@ -584,7 +601,7 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext map
 	// This dictionary defines the pre-declared environment.
 	src.SetPredeclared(predeclared)
 	src.SetBuiltIn(builtins)
-	src.SetContext(ciContext)
+	src.SetContext(ciContext.ContextData)
 
 	loader := MakeLoad(src)
 
@@ -598,7 +615,7 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext map
 	u, _ := url.Parse(fmt.Sprintf("context:///%s", fn))
 	setCWU(thread, u)
 
-	script, ok := ciContext[fn]
+	script, ok := ciContext.ContextData[fn]
 	if !ok {
 		return nil, fmt.Errorf("file %s is not present in the CI context", fn)
 	}

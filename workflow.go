@@ -524,7 +524,17 @@ func (ws *workflowSyncer) getCIStarlark(
 		return nil, fmt.Errorf("file %s found in CI context, %w", ws.config.CIStarlarkFile, os.ErrNotExist)
 	}
 
-	wf, err := cistarlark.LoadWorkflow(ctx, hc, ws.config.CIStarlarkFile, wctx.ContextData)
+	sCtx := cistarlark.WorkflowContext{
+		Repo:        wctx.Repo,
+		Ref:         wctx.Ref,
+		SHA:         wctx.SHA,
+		Entrypoint:  wctx.Entrypoint,
+		RefType:     wctx.RefType,
+		ContextData: wctx.ContextData,
+		PRs:         wctx.PRs,
+		Event:       wctx.DeployEvent,
+	}
+	wf, err := cistarlark.LoadWorkflow(ctx, hc, ws.config.CIStarlarkFile, sCtx)
 	if err != nil {
 		return nil, err
 	}
