@@ -534,7 +534,9 @@ func (ws *workflowSyncer) getCIStarlark(
 		PRs:         wctx.PRs,
 		Event:       wctx.DeployEvent,
 	}
-	wf, err := cistarlark.LoadWorkflow(ctx, hc, ws.config.CIStarlarkFile, sCtx)
+
+	sCfg := cistarlark.Config{}
+	wf, err := cistarlark.LoadWorkflow(ctx, hc, ws.config.CIStarlarkFile, sCtx, sCfg)
 	if err != nil {
 		return nil, err
 	}

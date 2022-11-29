@@ -151,7 +151,8 @@ spec:
 	ciCtx := WorkflowContext{
 		ContextData: ciContextData,
 	}
-	wf, err := LoadWorkflow(context.Background(), client, "/ci.star", ciCtx)
+	cfg := Config{}
+	wf, err := LoadWorkflow(context.Background(), client, "/ci.star", ciCtx, cfg)
 
 	if err != nil {
 		t.Fatalf("LoadWorkflow failed, %v", err)
