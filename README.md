@@ -5,11 +5,13 @@ design goal is to provide as much feedback and support directly via the github
 API, rather than through other interfaces.
 
 # What's here
-The existing code is functional, though quality needs improving. The existing
-application:
+
+The code is still work-in-progress but has seen extensive use for a few years now.
 
 If a given commit has a workflow file, location in ```.kube-ci/ci.yaml```,
 kube-ci:
+- Configuration is taken directly from the repository when various github
+  events occur.
 - Creates a Check Run when a Check Suite is requested. (see Build Policy below)
 - Creates the a workflow based on the provided file.
 - Reports parsing errors of the user supplied workflow back the Github UI.
@@ -24,6 +26,19 @@ kube-ci:
 - Allows initial bootstrap of the workflows via templates and a `/kube-ci` command from
   issues and PRs.
 - Allows filtering responses to limit them to specific orgs and install IDs
+
+## CI Configuration
+
+By default kube-ci will look for configuration in the configured CI Context directory
+(default: .kube-ci) of the repository being built. Winthin that directory kube-ci
+will check for the following files in order:
+
+- `ci.star`: If present this file is treated as a Starlark configuration file and
+  executed. Please see [STARLARK.md](STARLARK.md) for further details
+
+- `ci.yaml`: If present this is read as a direct YAML workflow definition
+
+(The context directory, and the file names, can be controlled from the configuration file.
 
 ## Build Policy
 
