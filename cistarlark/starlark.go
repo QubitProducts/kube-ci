@@ -394,11 +394,7 @@ func (c *modCache) get(thread *starlark.Thread, cc *cycleChecker, module *url.UR
 		c.modCacheMu.Unlock()
 
 		e.setOwner(cc)
-		fmt.Println("loading: ", moduleName)
 		e.globals, e.err = c.doLoad(thread, cc, module)
-		for k, v := range e.globals {
-			fmt.Println("symbol: ", k, v.String())
-		}
 		e.setOwner(nil)
 
 		// Broadcast that the entry is now ready.
@@ -573,12 +569,23 @@ type WorkflowContext struct {
 	Event       GithubEvent
 }
 
-func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext WorkflowContext) (*workflow.Workflow, error) {
+type PrintFunc func(_ *starlark.Thread, msg string)
+
+type Config struct {
+	// BuiltIns modules loaded via the "builtin:///"
+	BuiltIns map[string]starlark.StringDict
+	// Predeclared global variables
+	Predeclared starlark.StringDict
+	// Print function for user feedback
+	Print PrintFunc
+}
+
+func DefaultBuiltIns() map[string]starlark.StringDict {
 	yaml, _ := starlibyaml.LoadModule()
 	re, _ := starlibre.LoadModule()
 
 	// There should be a better way to inject these
-	builtins := map[string]starlark.StringDict{
+	return map[string]starlark.StringDict{
 		// The modules from qri have an annoying to use internal structure that
 		// stutters the name
 		"/encoding/yaml": yaml,
@@ -588,15 +595,36 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 		"/math":          starlibmath.Module.Members,
 		"/time":          starlibtime.Module.Members,
 	}
+}
 
+func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext WorkflowContext, cfg Config) (*workflow.Workflow, error) {
+	builtins := cfg.BuiltIns
+	if builtins == nil {
+		builtins = DefaultBuiltIns()
+	}
 	src := newModSource(hc)
 
-	predeclared := starlark.StringDict{
+	input := starlarkstruct.FromStringDict(
+		starlarkstruct.Default,
+		starlark.StringDict{
+			"ref":      starlark.String(ciContext.Ref),
+			"ref_type": starlark.String(ciContext.RefType),
+			"sha":      starlark.String(ciContext.SHA),
+		},
+	)
+
+	predeclared := cfg.Predeclared
+	if predeclared == nil {
+		predeclared = starlark.StringDict{}
+	}
+
+	/*
 		"struct": starlark.NewBuiltin("struct", starlarkstruct.Make),
 		"module": starlark.NewBuiltin("module", starlarkstruct.MakeModule),
+	*/
 
-		"loadFile": starlark.NewBuiltin("loadFile", src.builtInLoadFile),
-	}
+	predeclared["loadFile"] = starlark.NewBuiltin("loadFile", src.builtInLoadFile)
+	predeclared["intput"] = input
 
 	// This dictionary defines the pre-declared environment.
 	src.SetPredeclared(predeclared)
@@ -607,9 +635,9 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 
 	// The Thread defines the behavior of the built-in 'print' function.
 	thread := &starlark.Thread{
-		Name: "main",
-		//Print: func(_ *starlark.Thread, msg string) { t.Logf(msg) },
-		Load: loader,
+		Name:  "main",
+		Print: cfg.Print,
+		Load:  loader,
 	}
 
 	u, _ := url.Parse(fmt.Sprintf("context:///%s", fn))
