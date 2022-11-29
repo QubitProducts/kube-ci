@@ -4,18 +4,12 @@ metadata:
   annotations:
     kube-ci.qutics.com/cacheScope: project
     kube-ci.qutics.com/cacheSize: 20Gi
-  creationTimestamp: null
 spec:
-  arguments: {}
   entrypoint: test
   templates:
-  - inputs: {}
-    metadata: {}
-    name: test
-    outputs: {}
+  - name: test
     steps:
-    - - arguments: {}
-        name: test
+    - - name: test
         template: test-node
   - container:
       args:
@@ -35,8 +29,6 @@ spec:
       - name: GOPROXY
         value: http://gomod-athens:8080
       image: golang:1.19
-      name: ""
-      resources: {}
       volumeMounts:
       - mountPath: /cache
         name: build-cache
@@ -51,13 +43,8 @@ spec:
             name: ci-secrets
         name: code
         path: /src
-    metadata: {}
     name: test-node
-    outputs: {}
   volumes:
   - name: build-cache
     persistentVolumeClaim:
       claimName: '{{workflow.parameters.cacheVolumeClaimName}}'
-status:
-  finishedAt: null
-  startedAt: null
