@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -521,7 +522,7 @@ func (ws *workflowSyncer) getCIStarlark(
 ) (*workflow.Workflow, error) {
 	_, ok := wctx.ContextData[ws.config.CIStarlarkFile]
 	if !ok {
-		return nil, fmt.Errorf("file %s found in CI context, %w", ws.config.CIStarlarkFile, os.ErrNotExist)
+		return nil, fmt.Errorf("file %s not found in CI context, %w", ws.config.CIStarlarkFile, os.ErrNotExist)
 	}
 
 	sCtx := cistarlark.WorkflowContext{
@@ -579,7 +580,7 @@ func (ws *workflowSyncer) getWorkflow(
 			return
 		}
 
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			err = fmt.Errorf("no workflow definition found in context, %w", os.ErrNotExist)
 		}
 		err = fmt.Errorf("failed to load workflow, %w", err)
@@ -596,7 +597,7 @@ func (ws *workflowSyncer) getWorkflow(
 
 	wf, err = ws.getCIStarlark(ctx, wctx, cd.GetHTTPClient())
 
-	if err != nil && os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		wf, err = ws.getCIYAML(ctx, wctx)
 	}
 
