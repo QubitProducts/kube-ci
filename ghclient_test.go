@@ -3,6 +3,7 @@ package kubeci
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
 
@@ -43,6 +44,10 @@ type testGHClientInterface struct {
 
 func (tgi *testGHClientInterface) GetInstallID() int {
 	return tgi.instID
+}
+
+func (tgi *testGHClientInterface) GetHTTPClient() *http.Client {
+	return http.DefaultClient
 }
 
 func (tgi *testGHClientInterface) GetRef(ctx context.Context, ref string) (*github.Reference, error) {

@@ -120,15 +120,16 @@ type APIConfig struct {
 
 // Config defines our configuration file format
 type Config struct {
-	CIContextPath string            `yaml:"ciContextPath"`
-	CIYAMLFile    string            `yaml:"ciYAMLFile"`
-	Namespace     string            `yaml:"namespace"`
-	Tolerations   []v1.Toleration   `yaml:"tolerations"`
-	NodeSelector  map[string]string `yaml:"nodeSelector"`
-	TemplateSet   TemplateSet       `yaml:"templates"`
-	CacheDefaults CacheSpec         `yaml:"cacheDefaults"`
-	BuildDraftPRs bool              `yaml:"buildDraftPRs"`
-	BuildBranches string            `yaml:"buildBranches"`
+	CIContextPath  string            `yaml:"ciContextPath"`
+	CIYAMLFile     string            `yaml:"ciYAMLFile"`
+	CIStarlarkFile string            `yaml:"ciStarlarkFile"`
+	Namespace      string            `yaml:"namespace"`
+	Tolerations    []v1.Toleration   `yaml:"tolerations"`
+	NodeSelector   map[string]string `yaml:"nodeSelector"`
+	TemplateSet    TemplateSet       `yaml:"templates"`
+	CacheDefaults  CacheSpec         `yaml:"cacheDefaults"`
+	BuildDraftPRs  bool              `yaml:"buildDraftPRs"`
+	BuildBranches  string            `yaml:"buildBranches"`
 
 	ManualTemplates        string `yaml:"manualTemplates"`
 	EssentialTemplates     string `yaml:"essentialTemplates"`
@@ -153,6 +154,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 	var err error
 	wfconfig := Config{
 		CIYAMLFile:             "ci.yaml",
+		CIStarlarkFile:         "ci.star",
 		CIContextPath:          ".kube-ci",
 		Namespace:              defaultNamespace,
 		BuildDraftPRs:          false,
