@@ -267,7 +267,7 @@ func (ws *workflowSyncer) decorateWorkflow(
 	if wf.Labels == nil {
 		wf.Labels = make(map[string]string)
 	}
-	wf.Labels[labelManagedBy] = "kube-ci"
+	wf.Labels[labelManagedBy] = ws.config.ManagedBy
 	wf.Labels[labelOrg] = labelSafe(owner)
 	wf.Labels[labelRepo] = labelSafe(repoName)
 	wf.Labels[labelBranch] = labelSafe(wctx.Ref)

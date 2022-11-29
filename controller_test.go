@@ -786,6 +786,7 @@ func TestCreateWorkflow(t *testing.T) {
 	config.essentialTemplates = regexp.MustCompile("^$")
 	config.productionEnvironments = regexp.MustCompile("^$")
 	config.nonInteractiveBranches = regexp.MustCompile("^(production|staging)$")
+	config.ManagedBy = "kube-ci"
 
 	alreadyPublished := map[string]string{annAnnotationsPublished: "true"}
 	alreadyPublishedWithDeploy := map[string]string{
