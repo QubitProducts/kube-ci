@@ -24,6 +24,7 @@ var (
 
 type K8sStorageManager struct {
 	Namespace  string
+	ManagedBy  string
 	KubeClient kubernetes.Interface
 }
 
@@ -75,7 +76,7 @@ func (sm *K8sStorageManager) ensurePVC(
 
 	ls := labels.Set(
 		map[string]string{
-			labelManagedBy: "kube-ci",
+			labelManagedBy: sm.ManagedBy,
 			labelOrg:       labelSafe(org),
 			labelRepo:      labelSafe(repo),
 			labelScope:     labelSafe(scope),
@@ -195,7 +196,7 @@ func (sm *K8sStorageManager) deletePVC(
 	log.Printf("clearing PVCs for %q/%q %q (action: %q)", org, repo, branch, action)
 	ls := labels.Set(
 		map[string]string{
-			labelManagedBy: "kube-ci",
+			labelManagedBy: sm.ManagedBy,
 			labelOrg:       labelSafe(org),
 			labelRepo:      labelSafe(repo),
 		})

@@ -61,6 +61,7 @@ func TestWebhookDeleteBranchEvent(t *testing.T) {
 
 	sm := &K8sStorageManager{
 		KubeClient: client,
+		ManagedBy:  "kube-ci",
 	}
 	hh := &HookHandler{
 		Storage: sm,
@@ -123,6 +124,7 @@ func TestWebhookRepositoryDeleteEvent(t *testing.T) {
 
 	sm := &K8sStorageManager{
 		KubeClient: client,
+		ManagedBy:  "kube-ci",
 	}
 	hh := HookHandler{
 		Storage: sm,
@@ -174,6 +176,7 @@ func TestWebhookDeleteBranchEvent_BadName(t *testing.T) {
 
 	sm := &K8sStorageManager{
 		KubeClient: client,
+		ManagedBy:  "kube-ci",
 	}
 	hh := &HookHandler{
 		Storage: sm,

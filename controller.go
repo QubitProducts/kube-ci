@@ -124,6 +124,7 @@ type Config struct {
 	CIYAMLFile     string            `yaml:"ciYAMLFile"`
 	CIStarlarkFile string            `yaml:"ciStarlarkFile"`
 	Namespace      string            `yaml:"namespace"`
+	ManagedBy      string            `yaml:"managedBy"`
 	Tolerations    []v1.Toleration   `yaml:"tolerations"`
 	NodeSelector   map[string]string `yaml:"nodeSelector"`
 	TemplateSet    TemplateSet       `yaml:"templates"`
@@ -157,6 +158,7 @@ func ReadConfig(configfile, defaultNamespace string) (*Config, error) {
 		CIStarlarkFile:         "ci.star",
 		CIContextPath:          ".kube-ci",
 		Namespace:              defaultNamespace,
+		ManagedBy:              "kube-ci",
 		BuildDraftPRs:          false,
 		BuildBranches:          "master",
 		ManualTemplates:        "^$",
@@ -295,7 +297,7 @@ func (ws *workflowSyncer) doDelete(obj interface{}) {
 		return
 	}
 
-	if labels := wf.GetLabels(); labels == nil || labels[labelManagedBy] != "kube-ci" {
+	if labels := wf.GetLabels(); labels == nil || labels[labelManagedBy] != ws.config.ManagedBy {
 		return
 	}
 
@@ -626,7 +628,7 @@ func (ws *workflowSyncer) sync(wf *workflow.Workflow) (*workflow.Workflow, error
 	var err error
 	ctx := context.Background()
 
-	if labels := wf.GetLabels(); labels == nil || labels[labelManagedBy] != "kube-ci" {
+	if labels := wf.GetLabels(); labels == nil || labels[labelManagedBy] != ws.config.ManagedBy {
 		return wf, nil
 	}
 

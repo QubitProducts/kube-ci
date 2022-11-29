@@ -207,6 +207,7 @@ func DefaultMain() {
 	storage := &K8sStorageManager{
 		Namespace:  wfconfig.Namespace,
 		KubeClient: kubeClient,
+		ManagedBy:  wfconfig.ManagedBy,
 	}
 
 	wfSyncer := NewWorkflowSyner(
