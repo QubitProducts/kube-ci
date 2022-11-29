@@ -12,6 +12,7 @@ import (
 
 type GithubClientInterface interface {
 	GetInstallID() int
+	GetHTTPClient() *http.Client
 	GetRef(ctx context.Context, ref string) (*github.Reference, error)
 	CreateCheckRun(ctx context.Context, opts github.CreateCheckRunOptions) (*github.CheckRun, error)
 	GetRepo(ctx context.Context) (*github.Repository, error)

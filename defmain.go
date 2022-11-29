@@ -251,10 +251,11 @@ func DefaultMain() {
 	}
 
 	slashHandler := &SlashHandler{
-		CIContextPath: wfconfig.CIContextPath,
-		CIYAMLFile:    wfconfig.CIYAMLFile,
-		Templates:     wfconfig.TemplateSet,
-		Runner:        wfSyncer,
+		CIContextPath:  wfconfig.CIContextPath,
+		CIYAMLFile:     wfconfig.CIYAMLFile,
+		CIStarlarkFile: wfconfig.CIStarlarkFile,
+		Templates:      wfconfig.TemplateSet,
+		Runner:         wfSyncer,
 	}
 
 	hookHandler := &HookHandler{

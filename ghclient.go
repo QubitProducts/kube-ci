@@ -3,6 +3,7 @@ package kubeci
 import (
 	"context"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/google/go-github/v45/github"
@@ -18,6 +19,10 @@ type repoClient struct {
 
 func (r *repoClient) GetInstallID() int {
 	return r.installID
+}
+
+func (r *repoClient) GetHTTPClient() *http.Client {
+	return r.client.Client()
 }
 
 func (r *repoClient) GetRef(ctx context.Context, ref string) (*github.Reference, error) {

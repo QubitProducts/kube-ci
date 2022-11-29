@@ -7,11 +7,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"time"
 
+	"github.com/QubitProducts/kube-ci/cistarlark"
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v45/github"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -385,6 +387,7 @@ func runBranchOrTag(reftype string, wf *workflow.Workflow) bool {
 
 type baseGHClient interface {
 	GetInstallID() int
+	GetHTTPClient() *http.Client
 }
 
 type wfGHClient interface {
@@ -484,6 +487,7 @@ func (ws *workflowSyncer) lintWorkflow(wf *workflow.Workflow) (*workflow.Workflo
 type workflowGetter interface {
 	contentDownloader
 	GetInstallID() int
+	GetHTTPClient() *http.Client
 }
 
 func (ws *workflowSyncer) getRepoCIContext(
@@ -510,39 +514,36 @@ func (ws *workflowSyncer) getRepoCIContext(
 	return res, nil
 }
 
-func (ws *workflowSyncer) getCIYAML(
+func (ws *workflowSyncer) getCIStarlark(
 	ctx context.Context,
-	cd workflowGetter,
 	wctx *WorkflowContext,
-) ([]byte, error) {
-	var err error
-	ciFiles := wctx.ContextData
-	if ciFiles == nil {
-		ciFiles, err = ws.getRepoCIContext(ctx, cd, wctx)
-		if err != nil {
-			return nil, fmt.Errorf("file %s found in provided context data, %w", ws.config.CIYAMLFile, os.ErrNotExist)
-		}
+	hc *http.Client,
+) (*workflow.Workflow, error) {
+	_, ok := wctx.ContextData[ws.config.CIStarlarkFile]
+	if !ok {
+		return nil, fmt.Errorf("file %s found in CI context, %w", ws.config.CIStarlarkFile, os.ErrNotExist)
 	}
 
-	ciStr, ok := ciFiles[ws.config.CIYAMLFile]
+	wf, err := cistarlark.LoadWorkflow(ctx, hc, ws.config.CIStarlarkFile, wctx.ContextData)
+	if err != nil {
+		return nil, err
+	}
+	return wf, nil
+}
+
+func (ws *workflowSyncer) getCIYAML(
+	ctx context.Context,
+	wctx *WorkflowContext,
+) (*workflow.Workflow, error) {
+	var err error
+
+	ciStr, ok := wctx.ContextData[ws.config.CIYAMLFile]
 	if !ok {
 		return nil, fmt.Errorf("file %s found in CI context, %w", ws.config.CIYAMLFile, os.ErrNotExist)
 	}
-	return []byte(ciStr), nil
-}
-
-func (ws *workflowSyncer) getWorkflow(
-	ctx context.Context,
-	cd workflowGetter,
-	wctx *WorkflowContext,
-) (*workflow.Workflow, error) {
-	bs, err := ws.getCIYAML(ctx, cd, wctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CI config %s, %v", ws.config.CIYAMLFile, err)
-	}
 
 	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(bs, nil, nil)
+	obj, _, err := decode([]byte(ciStr), nil, nil)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode %s, %v", ws.config.CIYAMLFile, err)
@@ -552,10 +553,42 @@ func (ws *workflowSyncer) getWorkflow(
 	if !ok {
 		return nil, fmt.Errorf("could not use %T as workflow", wf)
 	}
-
-	ws.decorateWorkflow(wf, cd.GetInstallID(), wctx)
-
 	return wf, nil
+}
+
+func (ws *workflowSyncer) getWorkflow(
+	ctx context.Context,
+	cd workflowGetter,
+	wctx *WorkflowContext,
+) (wf *workflow.Workflow, err error) {
+	defer func() {
+		if err == nil {
+			ws.decorateWorkflow(wf, cd.GetInstallID(), wctx)
+			return
+		}
+
+		if os.IsNotExist(err) {
+			err = fmt.Errorf("no workflow definition found in context, %w", os.ErrNotExist)
+		}
+		err = fmt.Errorf("failed to load workflow, %w", err)
+	}()
+
+	ciFiles := wctx.ContextData
+	if ciFiles == nil {
+		ciFiles, err = ws.getRepoCIContext(ctx, cd, wctx)
+		if err != nil {
+			return nil, fmt.Errorf("could not read context from repo, %w", err)
+		}
+		wctx.ContextData = ciFiles
+	}
+
+	wf, err = ws.getCIStarlark(ctx, wctx, cd.GetHTTPClient())
+
+	if err != nil && os.IsNotExist(err) {
+		wf, err = ws.getCIYAML(ctx, wctx)
+	}
+
+	return
 }
 
 func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, wctx *WorkflowContext) (*workflow.Workflow, error) {

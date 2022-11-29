@@ -30,10 +30,11 @@ import (
 )
 
 type SlashHandler struct {
-	Runner        workflowRunner
-	CIContextPath string
-	CIYAMLFile    string
-	Templates     TemplateSet
+	Runner         workflowRunner
+	CIContextPath  string
+	CIYAMLFile     string
+	CIStarlarkFile string
+	Templates      TemplateSet
 }
 
 func (s *SlashHandler) slashComment(ctx context.Context, ghClient GithubClientInterface, event *github.IssueCommentEvent, body string) error {
