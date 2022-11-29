@@ -140,7 +140,7 @@ spec:
   templates:
   - name: test
 `
-	ciContext := map[string]string{
+	ciContextData := map[string]string{
 		"/ci.star":   script,
 		"/ci.yaml":   ciYaml,
 		"/test.star": testStar,
@@ -148,7 +148,10 @@ spec:
 	}
 
 	client := &http.Client{Transport: mock}
-	wf, err := LoadWorkflow(context.Background(), client, "/ci.star", ciContext)
+	ciCtx := WorkflowContext{
+		ContextData: ciContextData,
+	}
+	wf, err := LoadWorkflow(context.Background(), client, "/ci.star", ciCtx)
 
 	if err != nil {
 		t.Fatalf("LoadWorkflow failed, %v", err)
