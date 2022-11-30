@@ -462,6 +462,70 @@ func MakeLoad(src modOpener) func(thread *starlark.Thread, module string) (starl
 	}
 }
 
+func convertJSONListToValue(iv []interface{}) (starlark.Value, error) {
+	var res []starlark.Value
+	for i, v := range iv {
+		sv, err := convertJSONToValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid element %d, %w", i, err)
+		}
+		res = append(res, sv)
+	}
+
+	return starlark.NewList(res), nil
+}
+
+func convertJSONDictToValue(iv map[string]interface{}) (starlark.Value, error) {
+	res := starlark.NewDict(len(iv))
+	for k, v := range iv {
+		sv, err := convertJSONToValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid element %s, %w", k, err)
+		}
+		res.SetKey(starlark.String(k), sv)
+	}
+
+	return res, nil
+}
+
+func goToJSONHack(iv interface{}) (interface{}, error) {
+	bs, err := json.Marshal(iv)
+	if err != nil {
+		return nil, err
+	}
+	jres := make(map[string]interface{})
+	err = json.Unmarshal(bs, &jres)
+	if err != nil {
+		return nil, err
+	}
+	return jres, nil
+}
+
+func convertJSONToValue(iv interface{}) (starlark.Value, error) {
+	switch v := iv.(type) {
+	case bool:
+		return starlark.Bool(v), nil
+	case float64:
+		return starlark.Float(v), nil
+	case string:
+		return starlark.String(v), nil
+	case []interface{}:
+		return convertJSONListToValue(v)
+	case map[string]interface{}:
+		return convertJSONDictToValue(v)
+	default:
+		return nil, fmt.Errorf("could not convert %T to starlark type", iv)
+	}
+}
+
+func convertToStarlarkValue(iv interface{}) (starlark.Value, error) {
+	jv, err := goToJSONHack(iv)
+	if err != nil {
+		return nil, err
+	}
+	return convertJSONToValue(jv)
+}
+
 func convertValueToJSON(iv starlark.Value) (interface{}, error) {
 	switch v := iv.(type) {
 	case *starlark.Dict:
@@ -480,7 +544,7 @@ func convertValueToJSON(iv starlark.Value) (interface{}, error) {
 	case starlark.NoneType, *starlark.Builtin:
 		return nil, nil
 	default:
-		return nil, fmt.Errorf("could not convert %T to starlark type", iv)
+		return nil, fmt.Errorf("could not convert %T to JSON type", iv)
 	}
 }
 
@@ -597,6 +661,33 @@ func DefaultBuiltIns() map[string]starlark.StringDict {
 	}
 }
 
+func buildInput(ciContext WorkflowContext) (starlark.Value, error) {
+	inDict := starlark.StringDict{
+		"ref":      starlark.String(ciContext.Ref),
+		"ref_type": starlark.String(ciContext.RefType),
+		"sha":      starlark.String(ciContext.SHA),
+	}
+
+	var slRepo starlark.Value
+	slRepo, err := convertToStarlarkValue(ciContext.Repo)
+	if err != nil {
+		return nil, fmt.Errorf("could not convert repo to starlark value, %w", err)
+	}
+	inDict["repo"] = slRepo
+
+	if ciContext.Event != nil {
+		var slEv starlark.Value
+		slEv, err = convertToStarlarkValue(ciContext.Event)
+		if err != nil {
+			return nil, fmt.Errorf("could not convert event to starlark, %w", err)
+			// failed converting event
+		}
+		inDict["event"] = slEv
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, inDict), nil
+}
+
 func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext WorkflowContext, cfg Config) (*workflow.Workflow, error) {
 	builtins := cfg.BuiltIns
 	if builtins == nil {
@@ -604,14 +695,10 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 	}
 	src := newModSource(hc)
 
-	input := starlarkstruct.FromStringDict(
-		starlarkstruct.Default,
-		starlark.StringDict{
-			"ref":      starlark.String(ciContext.Ref),
-			"ref_type": starlark.String(ciContext.RefType),
-			"sha":      starlark.String(ciContext.SHA),
-		},
-	)
+	input, err := buildInput(ciContext)
+	if err != nil {
+		return nil, fmt.Errorf("could not build starlark input value, %w", err)
+	}
 
 	predeclared := cfg.Predeclared
 	if predeclared == nil {
@@ -624,7 +711,7 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 	*/
 
 	predeclared["loadFile"] = starlark.NewBuiltin("loadFile", src.builtInLoadFile)
-	predeclared["intput"] = input
+	predeclared["input"] = input
 
 	// This dictionary defines the pre-declared environment.
 	src.SetPredeclared(predeclared)
@@ -635,7 +722,7 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 
 	// The Thread defines the behavior of the built-in 'print' function.
 	thread := &starlark.Thread{
-		Name:  "main",
+		Name:  fn,
 		Print: cfg.Print,
 		Load:  loader,
 	}
@@ -648,7 +735,7 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 		return nil, fmt.Errorf("file %s is not present in the CI context", fn)
 	}
 
-	val, err := starlark.ExecFile(thread, "main", script, src.predeclared)
+	val, err := starlark.ExecFile(thread, fn, script, src.predeclared)
 	if err != nil {
 		return nil, err
 	}

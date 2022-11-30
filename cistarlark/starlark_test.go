@@ -13,6 +13,7 @@ import (
 
 	argoScheme "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned/scheme"
 	"github.com/google/go-github/v45/github"
+	"go.starlark.net/starlark"
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
@@ -120,6 +121,8 @@ squares = [x*x for x in range(10)]
 jsonStr = loadFile("/test.json")
 json = decode(jsonStr)
 
+print(input)
+
 # workflow = yaml.loads(loadFile("/ci.yaml"))
 entrypoint = "test"
 workflow = {
@@ -150,8 +153,21 @@ spec:
 	client := &http.Client{Transport: mock}
 	ciCtx := WorkflowContext{
 		ContextData: ciContextData,
+		Ref:         "master",
+		RefType:     "branch",
+		SHA:         "1234",
+		Repo: &github.Repository{
+			Name: github.String("myrepo"),
+			Organization: &github.Organization{
+				Name: github.String("myorg"),
+			},
+		},
 	}
-	cfg := Config{}
+
+	cfg := Config{
+		Print: func(_ *starlark.Thread, msg string) { t.Logf("message: %s", msg) },
+	}
+
 	wf, err := LoadWorkflow(context.Background(), client, "/ci.star", ciCtx, cfg)
 
 	if err != nil {
