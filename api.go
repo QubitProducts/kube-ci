@@ -61,8 +61,8 @@ func (h *APIHandler) handleRun(ctx context.Context, w http.ResponseWriter, r *Ru
 		Entrypoint:  r.Entrypoint,
 		ContextData: r.CIContext,
 
-		DeployEvent: nil,
-		PRs:         nil,
+		Event: nil,
+		PRs:   nil,
 	}
 
 	wf, err := h.Runner.getWorkflow(ctx, ghClient, &wctx)
