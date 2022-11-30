@@ -93,13 +93,13 @@ func (s *SlashHandler) slashRun(ctx context.Context, ghClient GithubClientInterf
 	headsha := pr.GetHead().GetSHA()
 	headref := pr.GetHead().GetRef()
 	wctx := WorkflowContext{
-		Repo:        event.Repo,
-		SHA:         headsha,
-		RefType:     "branch",
-		Ref:         headref,
-		Entrypoint:  "",
-		PRs:         []*github.PullRequest{pr},
-		DeployEvent: nil,
+		Repo:       event.Repo,
+		SHA:        headsha,
+		RefType:    "branch",
+		Ref:        headref,
+		Entrypoint: "",
+		PRs:        []*github.PullRequest{pr},
+		Event:      event,
 	}
 	_, err = s.Runner.runWorkflow(
 		ctx,

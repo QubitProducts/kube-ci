@@ -22,6 +22,12 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
+type GithubEvent interface {
+	GetInstallation() *github.Installation
+	GetRepo() *github.Repository
+	GetSender() *github.User
+}
+
 type WorkflowContext struct {
 	Repo        *github.Repository
 	Entrypoint  string
@@ -30,7 +36,7 @@ type WorkflowContext struct {
 	SHA         string
 	ContextData map[string]string
 	PRs         []*github.PullRequest
-	DeployEvent *github.DeploymentEvent
+	Event       GithubEvent
 }
 
 func wfName(org, repo, entrypoint, ref string) string {
@@ -415,13 +421,21 @@ func checkRunError(ctx context.Context, info *githubInfo, err error, title strin
 	)
 }
 
-func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workflow, ev *github.DeploymentEvent) error {
+func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workflow, ev GithubEvent) error {
 	if wf == nil {
 		return nil
 	}
 
+	var dEv *github.DeploymentEvent
 	if ev != nil {
-		entrypoint = ev.Deployment.GetTask()
+		switch ev := ev.(type) {
+		case *github.DeploymentEvent:
+			dEv = ev
+		}
+	}
+
+	if dEv != nil {
+		entrypoint = dEv.Deployment.GetTask()
 		dregex := ws.config.deployTemplates
 		if dregex == nil {
 			return fmt.Errorf("deployment templates are not configured")
@@ -463,7 +477,7 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 
 	// if this is for a deployment we need to update the environment parameter
 	envParam := ws.config.EnvironmentParameter
-	env := ev.Deployment.GetEnvironment()
+	env := dEv.Deployment.GetEnvironment()
 	found = false
 
 	for i, p := range entrypointTemplate.Inputs.Parameters {
@@ -533,7 +547,7 @@ func (ws *workflowSyncer) getCIStarlark(
 		RefType:     wctx.RefType,
 		ContextData: wctx.ContextData,
 		PRs:         wctx.PRs,
-		Event:       wctx.DeployEvent,
+		Event:       wctx.Event,
 	}
 
 	sCfg := cistarlark.Config{}
@@ -622,7 +636,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		return nil, nil
 	}
 
-	epErr := ws.setupEntrypoint(wctx.Entrypoint, wf, wctx.DeployEvent)
+	epErr := ws.setupEntrypoint(wctx.Entrypoint, wf, wctx.Event)
 	if epErr != nil {
 		log.Printf("not running %s/%s (%s), %v",
 			org,
@@ -636,12 +650,12 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	crName := defaultCheckRunName
 	if epErr == nil {
 		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
-		if wctx.DeployEvent != nil {
+		if wctx.Event != nil {
 			crName += " (deployment)"
 		}
 	}
 
-	if wctx.DeployEvent != nil {
+	if wctx.Event != nil {
 		crName += " (deployment)"
 	}
 

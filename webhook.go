@@ -142,13 +142,13 @@ func (h *HookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 	}
 
 	wctx := WorkflowContext{
-		Repo:        event.GetRepo(),
-		SHA:         event.GetDeployment().GetSHA(),
-		Ref:         event.GetDeployment().GetRef(),
-		RefType:     refType, // TODO - the ref could be a tag or a branch
-		Entrypoint:  event.GetDeployment().GetTask(),
-		PRs:         nil,
-		DeployEvent: event,
+		Repo:       event.GetRepo(),
+		SHA:        event.GetDeployment().GetSHA(),
+		Ref:        event.GetDeployment().GetRef(),
+		RefType:    refType, // TODO - the ref could be a tag or a branch
+		Entrypoint: event.GetDeployment().GetTask(),
+		PRs:        nil,
+		Event:      event,
 	}
 
 	// Run a workflow to perform the deploy
@@ -188,13 +188,13 @@ func (h *HookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 	headSHA := ref.Object.GetSHA()
 
 	wctx := WorkflowContext{
-		Repo:        event.GetRepo(),
-		SHA:         headSHA,
-		Ref:         event.GetRef(),
-		RefType:     "tag",
-		Entrypoint:  "",
-		PRs:         nil,
-		DeployEvent: nil,
+		Repo:       event.GetRepo(),
+		SHA:        headSHA,
+		Ref:        event.GetRef(),
+		RefType:    "tag",
+		Entrypoint: "",
+		PRs:        nil,
+		Event:      event,
 	}
 
 	_, err = h.Runner.runWorkflow(
@@ -219,13 +219,13 @@ func (h *HookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 	}
 
 	wctx := WorkflowContext{
-		Repo:        event.GetRepo(),
-		SHA:         event.GetCheckSuite().GetHeadSHA(),
-		Ref:         *event.GetCheckSuite().HeadBranch,
-		RefType:     "branch",
-		Entrypoint:  "",
-		PRs:         event.GetCheckSuite().PullRequests,
-		DeployEvent: nil,
+		Repo:       event.GetRepo(),
+		SHA:        event.GetCheckSuite().GetHeadSHA(),
+		Ref:        *event.GetCheckSuite().HeadBranch,
+		RefType:    "branch",
+		Entrypoint: "",
+		PRs:        event.GetCheckSuite().PullRequests,
+		Event:      event,
 	}
 
 	_, err = h.Runner.runWorkflow(
@@ -281,13 +281,13 @@ func (h *HookHandler) webhookCheckRunRequestAction(ctx context.Context, event *g
 		return h.webhookCheckRunRequestActionClearCache(ctx, event)
 	case "run":
 		wctx := WorkflowContext{
-			Repo:        event.GetRepo(),
-			SHA:         event.GetCheckRun().GetHeadSHA(),
-			Ref:         event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
-			RefType:     "branch",
-			Entrypoint:  event.GetCheckRun().GetExternalID(),
-			PRs:         event.GetCheckRun().GetCheckSuite().PullRequests,
-			DeployEvent: nil,
+			Repo:       event.GetRepo(),
+			SHA:        event.GetCheckRun().GetHeadSHA(),
+			Ref:        event.GetCheckRun().GetCheckSuite().GetHeadBranch(),
+			RefType:    "branch",
+			Entrypoint: event.GetCheckRun().GetExternalID(),
+			PRs:        event.GetCheckRun().GetCheckSuite().PullRequests,
+			Event:      event,
 		}
 		_, err = h.Runner.runWorkflow(ctx, ghClient, &wctx)
 	case "skip":
