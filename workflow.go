@@ -22,12 +22,16 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
+// GithubEvent is a copy of the type in cistarlark and
+// can probably be replaced by that one in future
 type GithubEvent interface {
 	GetInstallation() *github.Installation
 	GetRepo() *github.Repository
 	GetSender() *github.User
 }
 
+// WorkflowContext is a copy of the type in cistarlark and
+// can probably be replaced by that one in future
 type WorkflowContext struct {
 	Repo        *github.Repository
 	Entrypoint  string
