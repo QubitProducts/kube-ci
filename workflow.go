@@ -12,11 +12,13 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/QubitProducts/kube-ci/cistarlark"
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-github/v45/github"
+	"go.starlark.net/starlark"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -554,7 +556,18 @@ func (ws *workflowSyncer) getCIStarlark(
 		Event:       wctx.Event,
 	}
 
-	sCfg := cistarlark.Config{}
+	var output string
+	var outputM sync.Mutex
+	print := func(_ *starlark.Thread, msg string) {
+		outputM.Lock()
+		defer outputM.Unlock()
+		output = fmt.Sprintf("%s\n%s", output, msg)
+	}
+
+	sCfg := cistarlark.Config{
+		Print: print,
+	}
+	log.Printf("starlark output (%s): %s", wctx.Repo.GetFullName(), output)
 	wf, err := cistarlark.LoadWorkflow(ctx, hc, ws.config.CIStarlarkFile, sCtx, sCfg)
 	if err != nil {
 		return nil, err
