@@ -1,15 +1,8 @@
-print(input)
+# print(input)
 
-workflow = {
-  "apiVersion": "argoproj.io/v1alpha1",
-  "kind": "Workflow",
-  "metadata": {
-    "annotations": {
-      "kube-ci.qutics.com/cacheScope": "project",
-      "kube-ci.qutics.com/cacheSize": "20Gi"
-    }
-  },
-  "spec": {
+load("argo.star", "argoWorkflow")
+
+spec = {
     "entrypoint": "test",
     "templates": [
       {
@@ -41,12 +34,6 @@ workflow = {
             }
           ],
           "image": "golang:1.19",
-          "volumeMounts": [
-            {
-              "mountPath": "/cache",
-              "name": "build-cache"
-            }
-          ],
           "workingDir": "/src"
         },
         "inputs": {
@@ -68,13 +55,10 @@ workflow = {
         "name": "test-node"
       }
     ],
-    "volumes": [
-      {
-        "name": "build-cache",
-        "persistentVolumeClaim": {
-          "claimName": "{{workflow.parameters.cacheVolumeClaimName}}"
-        }
-      }
-    ]
   }
-}
+
+# The future starts here!
+
+workflow = argoWorkflow(
+              spec=spec,
+              cacheSize="20Gi")
