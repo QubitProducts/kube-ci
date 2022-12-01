@@ -477,7 +477,7 @@ func (ws *workflowSyncer) setupEntrypoint(entrypoint string, wf *workflow.Workfl
 		return fmt.Errorf("requested entrypoint %q not found in workflow templates", entrypoint)
 	}
 
-	if ev == nil {
+	if dEv == nil {
 		return nil
 	}
 
