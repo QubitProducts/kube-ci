@@ -583,7 +583,7 @@ func (ws *workflowSyncer) getCIYAML(
 
 	ciStr, ok := wctx.ContextData[ws.config.CIYAMLFile]
 	if !ok {
-		return nil, fmt.Errorf("file %s found in CI context, %w", ws.config.CIYAMLFile, os.ErrNotExist)
+		return nil, fmt.Errorf("file %s not found in CI context, %w", ws.config.CIYAMLFile, os.ErrNotExist)
 	}
 
 	decode := scheme.Codecs.UniversalDeserializer().Decode
@@ -626,6 +626,8 @@ func (ws *workflowSyncer) getWorkflow(
 		wctx.ContextData = ciFiles
 	}
 
+	log.Printf("ci context:  %#v", wctx.ContextData)
+
 	wf, err = ws.getCIStarlark(ctx, wctx, cd.GetHTTPClient())
 
 	if errors.Is(err, os.ErrNotExist) {
@@ -665,7 +667,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	}
 
 	crName := defaultCheckRunName
-	if epErr == nil {
+	if wfErr == nil && epErr == nil {
 		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
 		if wctx.Event != nil {
 			switch wctx.Event.(type) {
@@ -675,12 +677,17 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		}
 	}
 
+	var externalID *string
+	if wf != nil {
+		externalID = github.String(wf.Spec.Entrypoint)
+	}
+
 	title := github.String("Workflow Setup")
 	cr, crErr := ghClient.CreateCheckRun(ctx,
 		github.CreateCheckRunOptions{
 			Name:       crName,
 			HeadSHA:    wctx.SHA,
-			ExternalID: github.String(wf.Spec.Entrypoint),
+			ExternalID: externalID,
 			Status:     defaultCheckRunStatus,
 			Output: &github.CheckRunOutput{
 				Title:   github.String("Workflow Setup"),
@@ -724,7 +731,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	if wfErr != nil {
 		msg := fmt.Errorf("unable to parse workflow, %v", wfErr)
 		checkRunError(ctx, info, msg, *title)
-		log.Printf("unable to parse workflow for %s (%s), %v", wctx.Repo, wctx.Ref, wfErr)
+		log.Printf("unable to parse workflow for %s (%s), %v", wctx.Repo.GetFullName(), wctx.Ref, wfErr)
 		return nil, nil
 	}
 
@@ -755,6 +762,7 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		wctx.Ref,
 		ws.config.CacheDefaults,
 	)
+
 	if err != nil {
 		// Status: error to checkrun info failed - pvc create error
 		checkRunError(ctx, info, fmt.Errorf("creation of cache volume failed, %v", err), *title)

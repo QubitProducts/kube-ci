@@ -145,15 +145,32 @@ func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
 	return ok, err
 }
 
-func (r *repoClient) GetContents(ctx context.Context, filepath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
-	_, files, _, err := r.client.Repositories.GetContents(
+func (r *repoClient) GetContents(ctx context.Context, dirpath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
+	var out []*github.RepositoryContent
+
+	_, dir, _, err := r.client.Repositories.GetContents(
 		ctx,
 		r.org,
 		r.repo,
-		filepath,
+		dirpath,
 		opts,
 	)
-	return files, err
+
+	for _, f := range dir {
+		file, _, _, ferr := r.client.Repositories.GetContents(
+			ctx,
+			r.org,
+			r.repo,
+			f.GetPath(),
+			opts,
+		)
+		if ferr != nil {
+			return nil, ferr
+		}
+		out = append(out, file)
+	}
+
+	return out, err
 }
 
 func (r *repoClient) CreateFile(ctx context.Context, filepath string, opts *github.RepositoryContentFileOptions) error {
