@@ -668,12 +668,11 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 	if epErr == nil {
 		crName = fmt.Sprintf("Workflow - %s", wf.Spec.Entrypoint)
 		if wctx.Event != nil {
-			crName += " (deployment)"
+			switch wctx.Event.(type) {
+			case *github.DeploymentEvent:
+				crName += " (deployment)"
+			}
 		}
-	}
-
-	if wctx.Event != nil {
-		crName += " (deployment)"
 	}
 
 	title := github.String("Workflow Setup")
