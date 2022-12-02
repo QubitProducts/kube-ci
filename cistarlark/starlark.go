@@ -196,7 +196,7 @@ func (gh *modSrc) openContextFile(thread *starlark.Thread, url *url.URL) (starla
 		return emptyStr, fmt.Errorf("file not found in context")
 	}
 
-	str, ok := gh.context[url.Path]
+	str, ok := gh.context[strings.TrimPrefix(url.Path, "/")]
 	if !ok {
 		return emptyStr, fmt.Errorf("file not found in context")
 	}
@@ -730,7 +730,7 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 	u, _ := url.Parse(fmt.Sprintf("context:///%s", fn))
 	setCWU(thread, u)
 
-	script, ok := ciContext.ContextData[fn]
+	script, ok := ciContext.ContextData[strings.TrimPrefix(fn, "/")]
 	if !ok {
 		return nil, fmt.Errorf("file %s is not present in the CI context", fn)
 	}

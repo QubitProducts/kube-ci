@@ -144,10 +144,10 @@ spec:
   - name: test
 `
 	ciContextData := map[string]string{
-		"/ci.star":   script,
-		"/ci.yaml":   ciYaml,
-		"/test.star": testStar,
-		"/test.json": `{"hello": "world"}`,
+		"ci.star":   script,
+		"ci.yaml":   ciYaml,
+		"test.star": testStar,
+		"test.json": `{"hello": "world"}`,
 	}
 
 	client := &http.Client{Transport: mock}
@@ -168,7 +168,7 @@ spec:
 		Print: func(_ *starlark.Thread, msg string) { t.Logf("message: %s", msg) },
 	}
 
-	wf, err := LoadWorkflow(context.Background(), client, "/ci.star", ciCtx, cfg)
+	wf, err := LoadWorkflow(context.Background(), client, "ci.star", ciCtx, cfg)
 
 	if err != nil {
 		t.Fatalf("LoadWorkflow failed, %v", err)

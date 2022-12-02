@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"encoding/json"
 
@@ -53,13 +54,22 @@ func (h *APIHandler) handleRun(ctx context.Context, w http.ResponseWriter, r *Ru
 		refType = r.RefType
 	}
 
+	// We'll tidy up the filenames
+	var ciContext map[string]string
+	if r.CIContext != nil {
+		ciContext = make(map[string]string, len(r.CIContext))
+		for k, v := range r.CIContext {
+			ciContext[strings.TrimPrefix(k, "/")] = v
+		}
+	}
+
 	wctx := WorkflowContext{
 		Repo:        repo,
 		Ref:         r.Ref,
 		RefType:     refType,
 		SHA:         r.Hash,
 		Entrypoint:  r.Entrypoint,
-		ContextData: r.CIContext,
+		ContextData: ciContext,
 
 		Event: nil,
 		PRs:   nil,
