@@ -646,6 +646,10 @@ func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, 
 		wctx,
 	)
 
+	if wfErr != nil && errors.Is(wfErr, os.ErrNotExist) {
+		return nil, wfErr
+	}
+
 	if wf != nil {
 		wf = wf.DeepCopy()
 	}

@@ -3,9 +3,11 @@ package kubeci
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
@@ -156,6 +158,7 @@ func (h *HookHandler) webhookDeployment(ctx context.Context, event *github.Deplo
 		ghClient,
 		&wctx,
 	)
+
 	if err != nil {
 		return http.StatusBadRequest, fmt.Sprintf("error when running workflow, %v", err)
 	}
@@ -203,8 +206,12 @@ func (h *HookHandler) webhookCreateTag(ctx context.Context, event *github.Create
 		&wctx,
 	)
 
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return http.StatusBadRequest, err.Error()
+	}
+
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		log.Printf("ignoring create_tag event for %s, %s", event.GetRepo().GetFullName(), err)
 	}
 
 	return http.StatusOK, ""
@@ -234,8 +241,12 @@ func (h *HookHandler) webhookCheckSuite(ctx context.Context, event *github.Check
 		&wctx,
 	)
 
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return http.StatusBadRequest, err.Error()
+	}
+
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		log.Printf("ignoring check_suite event for %s, %s", event.GetRepo().GetFullName(), err)
 	}
 
 	return http.StatusOK, ""
