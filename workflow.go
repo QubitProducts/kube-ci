@@ -520,14 +520,14 @@ func (ws *workflowSyncer) getRepoCIContext(
 		Ref: wctx.Ref,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("could not fetch repository CI context, %v", err)
+		return nil, fmt.Errorf("could not fetch repository CI context, %w", err)
 	}
 
 	res := make(map[string]string)
 	for _, cnt := range cnts {
 		bs, err := cnt.GetContent()
 		if err != nil {
-			return nil, fmt.Errorf("could not fetch repository CI context, %v", err)
+			return nil, fmt.Errorf("could not fetch repository CI context, %w", err)
 		}
 		res[cnt.GetName()] = bs
 	}
@@ -625,8 +625,6 @@ func (ws *workflowSyncer) getWorkflow(
 		}
 		wctx.ContextData = ciFiles
 	}
-
-	log.Printf("ci context:  %#v", wctx.ContextData)
 
 	wf, err = ws.getCIStarlark(ctx, wctx, cd.GetHTTPClient())
 
