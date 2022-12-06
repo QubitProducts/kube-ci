@@ -2,8 +2,10 @@ package kubeci
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/go-github/v45/github"
@@ -148,13 +150,17 @@ func (r *repoClient) IsMember(ctx context.Context, user string) (bool, error) {
 func (r *repoClient) GetContents(ctx context.Context, dirpath string, opts *github.RepositoryContentGetOptions) ([]*github.RepositoryContent, error) {
 	var out []*github.RepositoryContent
 
-	_, dir, _, err := r.client.Repositories.GetContents(
+	_, dir, resp, err := r.client.Repositories.GetContents(
 		ctx,
 		r.org,
 		r.repo,
 		dirpath,
 		opts,
 	)
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%s not found in repo, %w", dirpath, os.ErrNotExist)
+	}
 
 	for _, f := range dir {
 		file, _, _, ferr := r.client.Repositories.GetContents(
