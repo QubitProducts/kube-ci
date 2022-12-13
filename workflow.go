@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -539,10 +540,10 @@ func (ws *workflowSyncer) getCIStarlark(
 	ctx context.Context,
 	wctx *WorkflowContext,
 	hc *http.Client,
-) (*workflow.Workflow, error) {
+) (*workflow.Workflow, string, error) {
 	_, ok := wctx.ContextData[ws.config.CIStarlarkFile]
 	if !ok {
-		return nil, fmt.Errorf("file %s not found in CI context, %w", ws.config.CIStarlarkFile, os.ErrNotExist)
+		return nil, "", fmt.Errorf("file %s not found in CI context, %w", ws.config.CIStarlarkFile, os.ErrNotExist)
 	}
 
 	sCtx := cistarlark.WorkflowContext{
@@ -556,23 +557,24 @@ func (ws *workflowSyncer) getCIStarlark(
 		Event:       wctx.Event,
 	}
 
-	var output string
+	var output []string
 	var outputM sync.Mutex
+
 	print := func(_ *starlark.Thread, msg string) {
 		outputM.Lock()
 		defer outputM.Unlock()
-		output = fmt.Sprintf("%s\n%s", output, msg)
+		output = append(output, msg)
 	}
 
 	sCfg := cistarlark.Config{
 		Print: print,
 	}
-	log.Printf("starlark output (%s): %s", wctx.Repo.GetFullName(), output)
 	wf, err := cistarlark.LoadWorkflow(ctx, hc, ws.config.CIStarlarkFile, sCtx, sCfg)
+	outStr := strings.Join(output, "\n")
 	if err != nil {
-		return nil, err
+		return nil, outStr, err
 	}
-	return wf, nil
+	return wf, outStr, nil
 }
 
 func (ws *workflowSyncer) getCIYAML(
@@ -604,7 +606,7 @@ func (ws *workflowSyncer) getWorkflow(
 	ctx context.Context,
 	cd workflowGetter,
 	wctx *WorkflowContext,
-) (wf *workflow.Workflow, err error) {
+) (wf *workflow.Workflow, debug string, err error) {
 	defer func() {
 		if err == nil {
 			ws.decorateWorkflow(wf, cd.GetInstallID(), wctx)
@@ -621,12 +623,12 @@ func (ws *workflowSyncer) getWorkflow(
 	if ciFiles == nil {
 		ciFiles, err = ws.getRepoCIContext(ctx, cd, wctx)
 		if err != nil {
-			return nil, fmt.Errorf("could not read context from repo, %w", err)
+			return nil, "", fmt.Errorf("could not read context from repo, %w", err)
 		}
 		wctx.ContextData = ciFiles
 	}
 
-	wf, err = ws.getCIStarlark(ctx, wctx, cd.GetHTTPClient())
+	wf, debug, err = ws.getCIStarlark(ctx, wctx, cd.GetHTTPClient())
 
 	if errors.Is(err, os.ErrNotExist) {
 		wf, err = ws.getCIYAML(ctx, wctx)
@@ -638,7 +640,7 @@ func (ws *workflowSyncer) getWorkflow(
 func (ws *workflowSyncer) runWorkflow(ctx context.Context, ghClient wfGHClient, wctx *WorkflowContext) (*workflow.Workflow, error) {
 	org := wctx.Repo.GetOwner().GetLogin()
 	name := wctx.Repo.GetName()
-	wf, wfErr := ws.getWorkflow(
+	wf, _, wfErr := ws.getWorkflow(
 		ctx,
 		ghClient,
 		wctx,

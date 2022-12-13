@@ -16,7 +16,7 @@ import (
 
 type workflowRunner interface {
 	runWorkflow(ctx context.Context, ghClient wfGHClient, wctx *WorkflowContext) (*workflow.Workflow, error)
-	getWorkflow(ctx context.Context, cd workflowGetter, wctx *WorkflowContext) (*workflow.Workflow, error)
+	getWorkflow(ctx context.Context, cd workflowGetter, wctx *WorkflowContext) (*workflow.Workflow, string, error)
 }
 
 type pvcManager interface {

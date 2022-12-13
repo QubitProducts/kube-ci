@@ -25,6 +25,7 @@ type APIHandler struct {
 
 type RunResp struct {
 	Workflow *workflow.Workflow `json:"workflow,omitempty"`
+	Debug    string             `json:"debug,omitempty"`
 }
 
 type RunRequest struct {
@@ -75,14 +76,15 @@ func (h *APIHandler) handleRun(ctx context.Context, w http.ResponseWriter, r *Ru
 		PRs:   nil,
 	}
 
-	wf, err := h.Runner.getWorkflow(ctx, ghClient, &wctx)
+	wf, debug, err := h.Runner.getWorkflow(ctx, ghClient, &wctx)
 	if err != nil {
-		return RunResp{}, fmt.Errorf("could not get workflow, %w", err)
+		return RunResp{Debug: debug}, fmt.Errorf("could not get workflow, %w", err)
 	}
 
 	if !r.Run {
 		return RunResp{
 			Workflow: wf,
+			Debug:    debug,
 		}, nil
 	}
 

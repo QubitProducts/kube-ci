@@ -22,6 +22,9 @@ workflow = {
 				"templates": [ { "name": "test"} ] } }
 ```
 
+As a special case, if `workflow` is set to `None`, then the workflow evaluation
+will be ignored as if the script did not exist.
+
 This has several advantages over directly supplying a workflow definition in YAML.
 
 - Starlark allows provide reusable functions and libraries to make building workflows easier,
@@ -101,15 +104,23 @@ Raw data can be read using the `loadFile` builtin function.
 It can be read from a github:
 
 ```
-some_data = load("github://myrepo.myorg/somefile.txt")
+some_data = loadFile("github://myrepo.myorg/somefile.txt")
+some_data1 = loadFile("github://myrepo/somefile.txt") // defaults to the current org if set
+some_data2 = loadFile("github://myrepo.myorg/somefile.txt?ref=some_ref") // use alternative ref
 ```
 
 Or directly from https URLs:
 ```
-some_data = load("https://example.com/mydata.json")
+some_data = loadFile("https://example.com/mydata.json")
 ```
 
-# TODO
+If the file does not exist this function will error and the evaluation of
+the workflow script will fail. This behaviour can be changed by adding
+`error_on_notfound=False`:
+```
+some_data = loadFile("https://example.com/mydata.json",error_on_notfound=False)
+# if the file is not found, this will result in some_data=None
+```
 
 - Provide a full utility library to make building argo workflows easier, along the
   lines of existing python argo libraries.

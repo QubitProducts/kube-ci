@@ -7,10 +7,12 @@ package cistarlark
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -113,7 +115,12 @@ func validateModURL(u *url.URL) error {
 
 func (gh *modSrc) builtInLoadFile(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var fn string
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "fn", &fn); err != nil {
+	var errOnNotFound = starlark.Bool(true)
+
+	err := starlark.UnpackArgs(b.Name(), args, kwargs,
+		"fn", &fn,
+		"error_on_notfound?", &errOnNotFound)
+	if err != nil {
 		return nil, err
 	}
 
@@ -137,6 +144,9 @@ func (gh *modSrc) builtInLoadFile(thread *starlark.Thread, b *starlark.Builtin, 
 
 	res, err = loader(thread, u)
 	if err != nil {
+		if !bool(errOnNotFound) && errors.Is(err, os.ErrNotExist) {
+			return starlark.None, nil
+		}
 		return nil, fmt.Errorf("could not open file %s, %w", u, err)
 	}
 	return res, nil
@@ -198,7 +208,7 @@ func (gh *modSrc) openContextFile(thread *starlark.Thread, url *url.URL) (starla
 
 	str, ok := gh.context[strings.TrimPrefix(url.Path, "/")]
 	if !ok {
-		return emptyStr, fmt.Errorf("file not found in context")
+		return emptyStr, fmt.Errorf("not in context, %w", os.ErrNotExist)
 	}
 	return starlark.String(str), nil
 }
@@ -206,7 +216,7 @@ func (gh *modSrc) openContextFile(thread *starlark.Thread, url *url.URL) (starla
 func (gh *modSrc) openContext(thread *starlark.Thread, url *url.URL) (starlark.StringDict, error) {
 	str, err := gh.openContextFile(thread, url)
 	if err != nil {
-		return nil, fmt.Errorf("reading HTTP body failed, %v", err)
+		return nil, fmt.Errorf("reading context data failed, %w", err)
 	}
 
 	return starlark.ExecFile(thread, url.String(), string(str), gh.predeclared)
@@ -215,19 +225,23 @@ func (gh *modSrc) openContext(thread *starlark.Thread, url *url.URL) (starlark.S
 func (gh *modSrc) openHTTPFile(thread *starlark.Thread, url *url.URL) (starlark.String, error) {
 	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
 	if err != nil {
-		return emptyStr, fmt.Errorf("invalid HTTP request, %v", err)
+		return emptyStr, fmt.Errorf("invalid HTTP request, %w", err)
 	}
 	resp, err := gh.http.Do(req)
 	if err != nil {
 		return emptyStr, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return emptyStr, fmt.Errorf("invalid HTTP status code, %v", resp.StatusCode)
+		err = fmt.Errorf("invalid HTTP status code, %v", resp.StatusCode)
+		if resp.StatusCode == http.StatusNotFound {
+			err = fmt.Errorf("%s, %w", err, os.ErrNotExist)
+		}
+		return emptyStr, err
 	}
 
 	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return emptyStr, fmt.Errorf("reading HTTP body failed, %v", err)
+		return emptyStr, fmt.Errorf("reading HTTP body failed, %w", err)
 	}
 	return starlark.String(string(bs)), nil
 }
@@ -235,7 +249,7 @@ func (gh *modSrc) openHTTPFile(thread *starlark.Thread, url *url.URL) (starlark.
 func (gh *modSrc) openHTTP(thread *starlark.Thread, url *url.URL) (starlark.StringDict, error) {
 	str, err := gh.openHTTPFile(thread, url)
 	if err != nil {
-		return nil, fmt.Errorf("reading HTTP body failed, %v", err)
+		return nil, fmt.Errorf("reading HTTP body failed, %w", err)
 	}
 
 	return starlark.ExecFile(thread, url.String(), string(str), gh.predeclared)
@@ -248,7 +262,7 @@ func (gh *modSrc) openGithubFile(thread *starlark.Thread, url *url.URL) (starlar
 	repo, org, _ := strings.Cut(url.Host, ".")
 	ref := url.Query().Get("ref")
 
-	file, _, _, err := gh.client.GetContents(
+	file, _, resp, err := gh.client.GetContents(
 		ctx,
 		org,
 		repo,
@@ -258,6 +272,9 @@ func (gh *modSrc) openGithubFile(thread *starlark.Thread, url *url.URL) (starlar
 		},
 	)
 	if err != nil {
+		if resp.StatusCode == http.StatusNotFound {
+			err = fmt.Errorf("%s, %w", err, os.ErrNotExist)
+		}
 		return emptyStr, err
 	}
 
@@ -593,19 +610,19 @@ func ConvertToWorkflow(v starlark.Value) (*workflow.Workflow, error) {
 
 	js, err := convertDictToJSON(wvDict)
 	if err != nil {
-		return nil, fmt.Errorf("could not convert dictionary to json object, %v", err)
+		return nil, fmt.Errorf("could not convert dictionary to json object, %w", err)
 	}
 
 	bs, err := json.Marshal(js)
 	if err != nil {
-		return nil, fmt.Errorf("could not marshal object to JSON, %v", err)
+		return nil, fmt.Errorf("could not marshal object to JSON, %w", err)
 	}
 
 	decode := scheme.Codecs.UniversalDeserializer().Decode
 	obj, _, err := decode(bs, nil, nil)
 
 	if err != nil {
-		return nil, fmt.Errorf("could not decode JSON to kubernetes object, %v", err)
+		return nil, fmt.Errorf("could not decode JSON to kubernetes object, %w", err)
 	}
 
 	wf, ok := obj.(*workflow.Workflow)
@@ -737,17 +754,25 @@ func LoadWorkflow(ctx context.Context, hc *http.Client, fn string, ciContext Wor
 
 	val, err := starlark.ExecFile(thread, fn, script, src.predeclared)
 	if err != nil {
-		return nil, err
+		// we explicitly do not wrap this error, we do not want ErrNotExist
+		// to flow back to the caller as the config did exist but didn't
+		// run. We allow the user to explicitly fall back by setting
+		// workflow = None
+		return nil, fmt.Errorf("starlark execution failed, %v", err)
 	}
 
 	if !val.Has("workflow") {
-		return nil, fmt.Errorf("starlark result must contain 'workflow', %v", err)
+		return nil, fmt.Errorf("starlark result must contain 'workflow'")
 	}
 	wv := val["workflow"]
 
+	if wv == starlark.None {
+		return nil, fmt.Errorf("starlark workflow was None, treating as %w", os.ErrNotExist)
+	}
+
 	wf, err := ConvertToWorkflow(wv)
 	if err != nil {
-		return nil, fmt.Errorf("starlark result could not be marshalled to a workflow, %v", err)
+		return nil, fmt.Errorf("starlark result could not be marshalled to a workflow, %w", err)
 	}
 
 	return wf, nil
