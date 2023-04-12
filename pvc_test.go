@@ -24,6 +24,7 @@ func newPVC(name, namespace, org, repo, scope, branch string) runtime.Object {
 	ls := map[string]string{
 		"somelabel": "unrelated", // assume we can have arbitrary labels on pvcs
 	}
+	anns := map[string]string{}
 
 	if org != "" {
 		ls["managedBy"] = "kube-ci"
@@ -37,9 +38,11 @@ func newPVC(name, namespace, org, repo, scope, branch string) runtime.Object {
 	}
 	if branch != "" {
 		ls[labelBranch] = labelSafe(branch)
+		anns[annBranch] = branch
 	}
 
 	pvc.SetLabels(ls)
+	pvc.SetAnnotations(anns)
 
 	return pvc
 }

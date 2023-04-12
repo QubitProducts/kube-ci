@@ -16,6 +16,7 @@ package kubeci
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,7 +27,6 @@ import (
 
 	"github.com/google/go-github/v45/github"
 	"github.com/mattn/go-shellwords"
-	"github.com/pkg/errors"
 )
 
 type SlashHandler struct {
@@ -47,7 +47,7 @@ func (s *SlashHandler) slashComment(ctx context.Context, ghClient GithubClientIn
 	)
 
 	if err != nil {
-		return errors.Wrap(err, "failed to create comment")
+		return fmt.Errorf("failed to create comment, %w", err)
 	}
 
 	return nil
@@ -84,7 +84,7 @@ func (s *SlashHandler) slashRun(ctx context.Context, ghClient GithubClientInterf
 	prid, _ := strconv.Atoi(pridstr)
 	pr, err := ghClient.GetPullRequest(ctx, prid)
 	if err != nil {
-		return errors.Wrap(err, "failed lookup up PR")
+		return fmt.Errorf("failed lookup up PR, %w", err)
 	}
 	if pr == nil {
 		return errors.New("failed lookup up PR")
@@ -121,7 +121,7 @@ func (s *SlashHandler) slashDeploy(ctx context.Context, ghClient GithubClientInt
 
 	_, sha, err := s.issueHead(ctx, ghClient, event)
 	if err != nil {
-		return errors.Wrap(err, "cannot setup ci for repository")
+		return fmt.Errorf("cannot setup ci for repository, %w", err)
 	}
 
 	msg := fmt.Sprintf("deploying the thing to %v", env)
@@ -135,7 +135,7 @@ func (s *SlashHandler) slashDeploy(ctx context.Context, ghClient GithubClientInt
 	)
 
 	if err != nil {
-		return errors.Wrap(err, "failed to create deploy")
+		return fmt.Errorf("failed to create deploy, %w", err)
 	}
 
 	log.Printf("Deployment created, %v", *dep.ID)
@@ -158,7 +158,7 @@ func (s *SlashHandler) slashSetup(ctx context.Context, ghClient GithubClientInte
 	branch, sha, err := s.issueHead(ctx, ghClient, event)
 	if err != nil {
 		s.slashComment(ctx, ghClient, event, "blah")
-		return errors.Wrap(err, "cannot setup ci for repository")
+		return fmt.Errorf("cannot setup ci for repository, %w", err)
 	}
 
 	path := s.CIContextPath
@@ -175,11 +175,11 @@ func (s *SlashHandler) slashSetup(ctx context.Context, ghClient GithubClientInte
 	if err != nil {
 		if ghErr, ok := err.(*github.ErrorResponse); ok {
 			if ghErr.Response.StatusCode != http.StatusNotFound {
-				return errors.Wrap(ghErr, "couldn't get directory listing")
+				return fmt.Errorf("couldn't get directory listing, %w", ghErr)
 			}
 			log.Printf("couldn't get %s for %s", path, sha)
 		} else {
-			return errors.Wrap(err, "couldn't get directory listing")
+			return fmt.Errorf("couldn't get directory listing, %w", err)
 		}
 	}
 
@@ -235,12 +235,12 @@ func (s *SlashHandler) issueHead(ctx context.Context, ghClient GithubClientInter
 	parts := strings.Split(*link, "/")
 	prid, err := strconv.Atoi(parts[len(parts)-1])
 	if err != nil {
-		return "", "", errors.Wrapf(err, "couldn't parse pull-request ID from %s", *link)
+		return "", "", fmt.Errorf("couldn't parse pull-request ID from %s, %w", *link, err)
 	}
 
 	pr, err := ghClient.GetPullRequest(ctx, prid)
 	if err != nil {
-		return "", "", errors.Wrap(err, "couldn't get PR")
+		return "", "", fmt.Errorf("couldn't get PR, %w", err)
 	}
 
 	if *pr.Head.Repo.URL != *pr.Base.Repo.URL ||

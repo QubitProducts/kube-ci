@@ -2,11 +2,14 @@ package kubeci
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	workflow "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	k8errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -26,6 +29,16 @@ type K8sStorageManager struct {
 	Namespace  string
 	ManagedBy  string
 	KubeClient kubernetes.Interface
+}
+
+func hash(strs ...string) string {
+	h := sha1.New()
+
+	allstrs := strings.Join(strs, "#")
+	fmt.Fprint(h, allstrs)
+	str := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+
+	return "x" + str[0:8]
 }
 
 func (sm *K8sStorageManager) ensurePVC(
@@ -65,13 +78,11 @@ func (sm *K8sStorageManager) ensurePVC(
 		return err
 	}
 
-	name := labelSafe("ci", scope, org, repo)
+	cacheHash := hash(org, repo)
+	name := labelSafe("ci", scope, org, repo, cacheHash)
 	if scope == scopeBranch {
-		name = labelSafe("ci", scope, org, repo, branch)
-	}
-
-	if wfVolName, ok := wf.Annotations[annCacheVolumeName]; ok {
-		name = wfVolName
+		cacheHash = hash(org, repo, branch)
+		name = labelSafe("ci", scope, org, repo, cacheHash)
 	}
 
 	ls := labels.Set(
@@ -83,26 +94,17 @@ func (sm *K8sStorageManager) ensurePVC(
 		})
 
 	if scope == scopeBranch {
-		ls[labelBranch] = labelSafe(branch)
+		ls[labelCacheHash] = cacheHash
+	}
+
+	if wfVolName, ok := wf.Annotations[annCacheVolumeName]; ok {
+		name = wfVolName
 	}
 
 	opt := metav1.GetOptions{}
 
 	pv, err := sm.KubeClient.CoreV1().PersistentVolumeClaims(wf.Namespace).Get(ctx, name, opt)
 	if err == nil {
-		for k, v := range ls {
-			v2, ok := pv.Labels[k]
-			if !ok || v != v2 {
-				return errors.New("cache pvc label mismatch")
-			}
-		}
-
-		if scope == scopeBranch && branch != "" {
-			if b, ok := pv.Annotations[annBranch]; ok && b != branch {
-				return errors.New("cache pvc branch annotation mismatch")
-			}
-		}
-
 		parms := wf.Spec.Arguments.Parameters
 		wf.Spec.Arguments.Parameters = append(parms, workflow.Parameter{
 			Name:  paramCacheVolumeClaimName,
@@ -194,16 +196,13 @@ func (sm *K8sStorageManager) deletePVC(
 	ctx := context.Background()
 
 	log.Printf("clearing PVCs for %q/%q %q (action: %q)", org, repo, branch, action)
+
 	ls := labels.Set(
 		map[string]string{
 			labelManagedBy: sm.ManagedBy,
 			labelOrg:       labelSafe(org),
 			labelRepo:      labelSafe(repo),
 		})
-
-	if branch != "" {
-		ls[labelScope] = scopeBranch
-	}
 
 	sel := ls.AsSelector().String()
 	if len(sel) == 0 {
@@ -225,10 +224,11 @@ func (sm *K8sStorageManager) deletePVC(
 
 	for _, pvc := range pvcs.Items {
 		if branch != "" {
-			if b, ok := pvc.Labels[labelBranch]; ok && b != labelSafe(branch) {
+			b, ok := pvc.Annotations[annBranch]
+			if !ok {
 				continue
 			}
-			if b, ok := pvc.Annotations[annBranch]; ok && b != branch {
+			if b != branch {
 				continue
 			}
 		}

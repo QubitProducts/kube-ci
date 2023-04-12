@@ -79,6 +79,7 @@ var (
 	labelRepo      = "repo"
 	labelBranch    = "branch"
 	labelScope     = "scope"
+	labelCacheHash = "cacheHash"
 )
 
 // CacheSpec lets you choose the default settings for a
