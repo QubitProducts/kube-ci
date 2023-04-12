@@ -263,6 +263,12 @@ func (ws *workflowSyncer) decorateWorkflow(
 		prid := strconv.Itoa(pr.GetNumber())
 		prIDArg = workflow.AnyStringPtr(prid)
 		prBaseArg = workflow.AnyStringPtr(*pr.Base.Ref)
+		if wf.Annotations == nil {
+			wf.Annotations = make(map[string]string)
+		}
+		// This sets the workflow title in the UI to be the PR title
+		wf.Annotations["workflows.argoproj.io/title"] = pr.GetTitle()
+		wf.Annotations[annPRURL] = pr.GetURL()
 	}
 
 	parms = append(parms, []workflow.Parameter{

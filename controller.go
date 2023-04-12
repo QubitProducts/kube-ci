@@ -56,6 +56,7 @@ var (
 	annCheckRunID           = "kube-ci.qutics.com/check-run-id"
 	annAnnotationsPublished = "kube-ci.qutics.com/annotations-published"
 	annDeploymentIDs        = "kube-ci.qutics.com/deployment-ids"
+	annPRURL                = "kube-ci.qutics.com/pr-url"
 
 	annCacheVolumeName             = "kube-ci.qutics.com/cacheName"
 	annCacheVolumeScope            = "kube-ci.qutics.com/cacheScope"
