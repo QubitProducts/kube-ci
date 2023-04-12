@@ -268,7 +268,7 @@ func (ws *workflowSyncer) decorateWorkflow(
 		}
 		// This sets the workflow title in the UI to be the PR title
 		wf.Annotations["workflows.argoproj.io/title"] = pr.GetTitle()
-		wf.Annotations[annPRURL] = pr.GetURL()
+		wf.Annotations[annPRURL] = pr.GetHTMLURL()
 	}
 
 	parms = append(parms, []workflow.Parameter{
