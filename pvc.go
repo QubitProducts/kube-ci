@@ -135,7 +135,7 @@ func (sm *K8sStorageManager) ensurePVC(
 		annRepo: repo,
 		annOrg:  org,
 	}
-	if branch != "" {
+	if scope == scopeBranch && branch != "" {
 		anns[annBranch] = branch
 	}
 
@@ -203,6 +203,10 @@ func (sm *K8sStorageManager) deletePVC(
 			labelOrg:       labelSafe(org),
 			labelRepo:      labelSafe(repo),
 		})
+
+	if branch != "" {
+		ls[labelScope] = scopeBranch
+	}
 
 	sel := ls.AsSelector().String()
 	if len(sel) == 0 {
