@@ -94,7 +94,7 @@ func (sm *K8sStorageManager) ensurePVC(
 		})
 
 	if scope == scopeBranch {
-		ls[labelCacheHash] = cacheHash
+		ls[labelCacheHash] = labelSafe(cacheHash)
 	}
 
 	if wfVolName, ok := wf.Annotations[annCacheVolumeName]; ok {
