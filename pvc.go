@@ -85,6 +85,10 @@ func (sm *K8sStorageManager) ensurePVC(
 		name = labelSafe("ci", scope, org, repo, cacheHash)
 	}
 
+	// TODO(tcm): this is a workaround for a GCP bug introduced
+	// in GKE 1.26, which disallows "." in pvc names
+	name = escape(name)
+
 	ls := labels.Set(
 		map[string]string{
 			labelManagedBy: sm.ManagedBy,
